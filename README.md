@@ -47,26 +47,22 @@
 3. 在弹出的菜单里点击 `启动 webcode`。
 4. 等待状态栏文字变成 `webcode: <端口>`。
 
-当状态栏显示端口号时，说明本地 Gateway 已经启动。启动成功后会自动打开 AI 启动菜单，不需要再点一次状态栏。
+当状态栏显示端口号时，说明本地 Gateway 已经启动。
 
 ### 3. 打开目标网页 AI
 
-1. 在启动菜单里选择目标站点，例如 `Open Gemini`、`Open ChatGPT` 或其他支持的入口。
+1. 在启动菜单里选择目标站点，例如 `Open ChatGPT` 或其他支持的入口。
 2. webcode 默认会用 [`Edge 独立保活模式`](doc/BROWSER_MODE_GUIDE.md) 打开 Microsoft Edge。
 3. 独立 Edge profile 会自动加载内置的 webcode bridge。
 4. 桥接页会自动与本地 Gateway 完成握手。
 5. 握手成功后，浏览器会自动跳转到对应的 AI 站点。
 
-首次使用时，需要在这个独立 Edge profile 中登录一次目标 AI 站点。登录过程中如果跳转到 Google、Microsoft 等第三方登录页，bridge 会暂时暂停当前页面能力并保留 session；登录完成并回到目标 AI 站点后会自动恢复。当 bridge 显示 `ON` 时，表示连接已经可以使用。
-
-独立 profile 储存在系统应用数据目录，卸载 VS Code 扩展不会自动删除登录态和缓存；如需清理，见 [浏览器模式指南](doc/BROWSER_MODE_GUIDE.md)。
-
-如果 Gateway 已经在运行，点击状态栏里的 `webcode: <端口>` 可以重新打开同一个启动菜单。
+首次使用时，需要在这个独立 Edge profile 中登录一次目标 AI 站点。当 bridge 显示 `ON` 时，表示连接已经可以使用。
 
 ### 4. 在对话中使用
 
 1. 打开目标 AI 站点中的新对话。
-2. 先输入你的实际需求，再在同一条消息末尾添加 `/webcode` 或 `@webcode`。
+2. 先输入你的实际需求，再在同一条消息末尾添加 `/webcode` 或 `@webcode`，或者直接回车。
 3. 当 webcode 询问是否添加初始化上下文时，点击 `添加` 或按 Enter。
 4. webcode 会把触发词替换为完整初始化上下文。确认消息内容后，由你手动发送。
 
