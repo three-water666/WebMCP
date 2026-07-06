@@ -7,6 +7,7 @@ export interface BrowserLaunchCommand {
     command: string;
     prefixArgs: string[];
     transformBrowserArgs?: (browserArgs: string[]) => string[];
+    windowsVerbatimArguments?: boolean;
     windowsHide?: boolean;
 }
 
@@ -62,6 +63,7 @@ function launchBrowserCandidate(
     const child = spawn(launchCommand.command, [...launchCommand.prefixArgs, ...commandBrowserArgs], {
         detached: true,
         stdio: 'ignore',
+        windowsVerbatimArguments: launchCommand.windowsVerbatimArguments ?? false,
         windowsHide: launchCommand.windowsHide ?? false
     });
 

@@ -335,8 +335,9 @@ function getWindowsEdgeLaunchCommands(env: NodeJS.ProcessEnv): BrowserLaunchComm
     ], {
         fallback: {
             command: env.ComSpec ?? 'cmd.exe',
-            prefixArgs: ['/d', '/c', 'start', '', 'msedge.exe'],
+            prefixArgs: ['/d', '/v:off', '/s', '/c', 'start "" msedge.exe'],
             transformBrowserArgs: args => args.map(escapeWindowsCmdArgument),
+            windowsVerbatimArguments: true,
             windowsHide: true
         },
         includeMissingAbsolute: true
@@ -443,4 +444,3 @@ function buildLinuxBrowserCommand(url: string, browserType: string): string {
 
     return `xdg-open "${url}"`;
 }
-
