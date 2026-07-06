@@ -6,6 +6,16 @@ import { t } from '../i18n';
 export interface BrowserLaunchCommand {
     command: string;
     prefixArgs: string[];
+    windowsHide?: boolean;
+}
+
+interface BrowserLaunchOptions {
+    outputChannel?: vscode.OutputChannel;
+}
+
+interface BrowserLaunchFailure {
+    command: string;
+    message: string;
 }
 
 const BROWSER_STABLE_LAUNCH_MS = 1000;
@@ -13,38 +23,47 @@ const BROWSER_STABLE_LAUNCH_MS = 1000;
 export function launchFirstAvailableBrowser(
     launchCommands: BrowserLaunchCommand[],
     browserArgs: string[],
-    browserName: string
+    browserName: string,
+    options: BrowserLaunchOptions = {}
 ): void {
-    const tryLaunch = (index: number, lastFailure?: string) => {
+    logBrowserLaunch(options.outputChannel, `Launching ${browserName} with ${launchCommands.length} candidate(s).`);
+    logBrowserLaunch(options.outputChannel, `Arguments: ${formatArgsForLog(browserArgs)}`);
+
+    const tryLaunch = (index: number, failures: BrowserLaunchFailure[]) => {
         const launchCommand = launchCommands[index];
         if (!launchCommand) {
-            showLaunchFailure(browserName, lastFailure);
+            showLaunchFailure(browserName, failures, options.outputChannel);
             return;
         }
 
-        launchBrowserCandidate(launchCommand, browserArgs, browserName, failure => {
-            tryLaunch(index + 1, failure ?? lastFailure);
+        launchBrowserCandidate(launchCommand, browserArgs, browserName, options.outputChannel, failure => {
+            tryLaunch(index + 1, [...failures, failure]);
         });
     };
 
-    tryLaunch(0);
+    tryLaunch(0, []);
 }
 
 function launchBrowserCandidate(
     launchCommand: BrowserLaunchCommand,
     browserArgs: string[],
     browserName: string,
-    onFailure: (failure?: string) => void
+    outputChannel: vscode.OutputChannel | undefined,
+    onFailure: (failure: BrowserLaunchFailure) => void
 ): void {
     let settled = false;
     let stableTimer: NodeJS.Timeout | undefined;
+    const displayCommand = formatCommandForLog(launchCommand, browserArgs);
+
+    logBrowserLaunch(outputChannel, `Trying ${browserName}: ${displayCommand}`);
+
     const child = spawn(launchCommand.command, [...launchCommand.prefixArgs, ...browserArgs], {
         detached: true,
         stdio: 'ignore',
-        windowsHide: false
+        windowsHide: launchCommand.windowsHide ?? false
     });
 
-    const continueWithFailure = (failure: string | undefined) => {
+    const continueWithFailure = (message: string) => {
         if (settled) {
             return;
         }
@@ -54,17 +73,19 @@ function launchBrowserCandidate(
             clearTimeout(stableTimer);
         }
 
-        onFailure(failure);
+        logBrowserLaunch(outputChannel, `Failed ${browserName}: ${displayCommand} (${message})`);
+        onFailure({ command: displayCommand, message });
     };
 
     child.once('error', (error: NodeJS.ErrnoException) => {
-        continueWithFailure(error.code === 'ENOENT' ? undefined : error.message);
+        continueWithFailure(error.code === 'ENOENT' ? 'command not found' : error.message);
     });
 
     child.once('spawn', () => {
         stableTimer = setTimeout(() => {
             settled = true;
             child.unref();
+            logBrowserLaunch(outputChannel, `Started ${browserName}: ${displayCommand}`);
         }, BROWSER_STABLE_LAUNCH_MS);
     });
 
@@ -78,6 +99,7 @@ function launchBrowserCandidate(
             if (stableTimer) {
                 clearTimeout(stableTimer);
             }
+            logBrowserLaunch(outputChannel, `Launch command finished for ${browserName}: ${displayCommand}`);
             return;
         }
 
@@ -89,13 +111,25 @@ function launchBrowserCandidate(
     });
 }
 
-function showLaunchFailure(browserName: string, lastFailure?: string): void {
-    if (lastFailure) {
-        void vscode.window.showErrorMessage(t('open_browser_failed', { message: lastFailure }));
+function showLaunchFailure(
+    browserName: string,
+    failures: BrowserLaunchFailure[],
+    outputChannel: vscode.OutputChannel | undefined
+): void {
+    if (failures.length > 0) {
+        const lastFailure = failures[failures.length - 1];
+        logBrowserLaunch(
+            outputChannel,
+            `All ${failures.length} candidate(s) failed for ${browserName}. Last failure: ${lastFailure.command} (${lastFailure.message})`
+        );
+        showBrowserLaunchError(
+            t('browser_launch_failed', { browser: browserName, message: lastFailure.message }),
+            outputChannel
+        );
         return;
     }
 
-    void vscode.window.showErrorMessage(t('browser_not_found', { browser: browserName }));
+    showBrowserLaunchError(t('browser_not_found', { browser: browserName }), outputChannel);
 }
 
 function formatBrowserExitReason(code: number | null, signal: NodeJS.Signals | null): string {
@@ -104,4 +138,57 @@ function formatBrowserExitReason(code: number | null, signal: NodeJS.Signals | n
     }
 
     return signal ? `signal ${signal}` : 'unknown reason';
+}
+
+function showBrowserLaunchError(message: string, outputChannel: vscode.OutputChannel | undefined): void {
+    const viewLogsLabel = t('view_logs_label');
+    const shown = outputChannel
+        ? vscode.window.showErrorMessage(message, viewLogsLabel)
+        : vscode.window.showErrorMessage(message);
+
+    if (!outputChannel) {
+        return;
+    }
+
+    void shown.then(selection => {
+        if (selection === viewLogsLabel) {
+            outputChannel.show();
+        }
+    });
+}
+
+function logBrowserLaunch(outputChannel: vscode.OutputChannel | undefined, message: string): void {
+    outputChannel?.appendLine(`[BrowserLauncher] ${message}`);
+}
+
+function formatCommandForLog(launchCommand: BrowserLaunchCommand, browserArgs: string[]): string {
+    return formatArgsForLog([launchCommand.command, ...launchCommand.prefixArgs, ...browserArgs]);
+}
+
+function formatArgsForLog(args: string[]): string {
+    return args.map(arg => quoteArgForLog(redactArgForLog(arg))).join(' ');
+}
+
+function quoteArgForLog(arg: string): string {
+    if (!arg) {
+        return '""';
+    }
+
+    return /\s/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg;
+}
+
+function redactArgForLog(arg: string): string {
+    if (!/^https?:\/\//i.test(arg)) {
+        return arg;
+    }
+
+    try {
+        const url = new URL(arg);
+        if (url.searchParams.has('bridgeToken')) {
+            url.searchParams.set('bridgeToken', 'redacted');
+        }
+        return url.toString();
+    } catch {
+        return '<url>';
+    }
 }

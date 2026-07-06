@@ -109,7 +109,7 @@ async function showOfflineMenu(
             });
         }
     } else if (selection.action === 'openIsolatedEdgeProfile') {
-        launchIsolatedEdgeProfile(extensionContext);
+        launchIsolatedEdgeProfile(extensionContext, outputChannel);
     } else if (selection.action === 'resetIsolatedProfiles') {
         await vscode.commands.executeCommand(RESET_ISOLATED_BROWSER_PROFILES_COMMAND);
     } else if (selection.action === 'cleanLegacyIsolatedProfiles') {
@@ -240,13 +240,19 @@ async function handleOnlineSelection(
 
     // 3. 自定义启动
     if (selection.action === 'custom') {
-        await launchCustomBridge(aiSites, context.extensionContext, context.currentPort, context.currentToken);
+        await launchCustomBridge(
+            aiSites,
+            context.extensionContext,
+            context.outputChannel,
+            context.currentPort,
+            context.currentToken
+        );
         return;
     }
 
     // 3.5 直接打开默认 Edge 独立 profile，便于登录或管理浏览器插件。
     if (selection.action === 'openIsolatedEdgeProfile') {
-        launchIsolatedEdgeProfile(context.extensionContext);
+        launchIsolatedEdgeProfile(context.extensionContext, context.outputChannel);
         return;
     }
 
@@ -264,6 +270,7 @@ async function handleOnlineSelection(
     if (selection.target) {
         launchBridge({
             context: context.extensionContext,
+            outputChannel: context.outputChannel,
             siteId: selection.siteId ?? '',
             targetUrl: selection.target,
             browserMode: 'auto',
@@ -276,6 +283,7 @@ async function handleOnlineSelection(
 async function launchCustomBridge(
     aiSites: ResolvedAiSiteConfig[],
     extensionContext: vscode.ExtensionContext,
+    outputChannel: vscode.OutputChannel,
     currentPort: number,
     currentToken: string
 ): Promise<void> {
@@ -320,6 +328,7 @@ async function launchCustomBridge(
 
     launchBridge({
         context: extensionContext,
+        outputChannel,
         siteId: aiSelection.siteId ?? "",
         targetUrl: aiSelection.target ?? "",
         browserMode: browserSelection.value ?? "",

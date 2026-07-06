@@ -15,6 +15,7 @@ import type { AISiteConfig } from './types';
 
 interface LaunchBridgeOptions {
     context: vscode.ExtensionContext;
+    outputChannel?: vscode.OutputChannel;
     siteId: string;
     targetUrl: string;
     browserMode: string;
@@ -28,11 +29,14 @@ export function launchBridge(options: LaunchBridgeOptions): void {
     const bridgeUrl = buildBridgeUrl(options.currentPort, options.currentToken, options.siteId, options.targetUrl);
     const finalBrowser = resolveBrowser(options.siteId, options.browserMode);
 
-    openBrowser(bridgeUrl, finalBrowser, options.context);
+    openBrowser(bridgeUrl, finalBrowser, options.context, options.outputChannel);
 }
 
-export function launchIsolatedEdgeProfile(context: vscode.ExtensionContext): void {
-    void openIsolatedBrowser(ISOLATED_EDGE_PROFILE_HOME_URL, 'edge', context).catch(error => {
+export function launchIsolatedEdgeProfile(
+    context: vscode.ExtensionContext,
+    outputChannel?: vscode.OutputChannel
+): void {
+    void openIsolatedBrowser(ISOLATED_EDGE_PROFILE_HOME_URL, 'edge', context, outputChannel).catch(error => {
         void vscode.window.showErrorMessage(t('open_browser_failed', { message: getErrorMessage(error) }));
     });
 }
@@ -64,25 +68,39 @@ function resolveBrowser(siteId: string, browserMode: string): string {
     return config.get<string>('browser') ?? 'isolated-edge';
 }
 
-function openBrowser(url: string, browserType: string, context: vscode.ExtensionContext): void {
-    void openBrowserAsync(url, browserType, context).catch(error => {
+function openBrowser(
+    url: string,
+    browserType: string,
+    context: vscode.ExtensionContext,
+    outputChannel?: vscode.OutputChannel
+): void {
+    void openBrowserAsync(url, browserType, context, outputChannel).catch(error => {
         void vscode.window.showErrorMessage(t('open_browser_failed', { message: getErrorMessage(error) }));
     });
 }
 
-async function openBrowserAsync(url: string, browserType: string, context: vscode.ExtensionContext): Promise<void> {
+async function openBrowserAsync(
+    url: string,
+    browserType: string,
+    context: vscode.ExtensionContext,
+    outputChannel?: vscode.OutputChannel
+): Promise<void> {
     if (browserType === 'default') {
         await vscode.env.openExternal(vscode.Uri.parse(url));
         return;
     }
 
     if (browserType === 'isolated-chrome' || browserType === 'isolated-edge') {
-        await openIsolatedBrowser(url, browserType === 'isolated-edge' ? 'edge' : 'chrome', context);
+        await openIsolatedBrowser(url, browserType === 'isolated-edge' ? 'edge' : 'chrome', context, outputChannel);
         return;
     }
 
     if (browserType === 'user-profile-chrome' || browserType === 'user-profile-edge') {
-        await openUserProfileKeepaliveBrowser(url, browserType === 'user-profile-edge' ? 'edge' : 'chrome');
+        await openUserProfileKeepaliveBrowser(
+            url,
+            browserType === 'user-profile-edge' ? 'edge' : 'chrome',
+            outputChannel
+        );
         return;
     }
 
@@ -100,7 +118,12 @@ async function openBrowserAsync(url: string, browserType: string, context: vscod
     void vscode.env.openExternal(vscode.Uri.parse(url));
 }
 
-async function openIsolatedBrowser(url: string, browserFamily: BrowserFamily, context: vscode.ExtensionContext): Promise<void> {
+async function openIsolatedBrowser(
+    url: string,
+    browserFamily: BrowserFamily,
+    context: vscode.ExtensionContext,
+    outputChannel?: vscode.OutputChannel
+): Promise<void> {
     const extensionPath = resolveBundledBrowserExtensionPath(context);
     if (!extensionPath) {
         void vscode.window.showErrorMessage(t('browser_extension_missing'));
@@ -129,10 +152,16 @@ async function openIsolatedBrowser(url: string, browserFamily: BrowserFamily, co
         return;
     }
 
-    launchFirstAvailableBrowser(launchCommands, browserArgs, getBrowserDisplayName(browserFamily));
+    launchFirstAvailableBrowser(launchCommands, browserArgs, getBrowserDisplayName(browserFamily), {
+        outputChannel
+    });
 }
 
-async function openUserProfileKeepaliveBrowser(url: string, browserFamily: BrowserFamily): Promise<void> {
+async function openUserProfileKeepaliveBrowser(
+    url: string,
+    browserFamily: BrowserFamily,
+    outputChannel?: vscode.OutputChannel
+): Promise<void> {
     const browserName = getUserProfileBrowserDisplayName(browserFamily);
     const isAlreadyRunning = await isBrowserProcessRunning(browserFamily);
     if (isAlreadyRunning) {
@@ -140,7 +169,9 @@ async function openUserProfileKeepaliveBrowser(url: string, browserFamily: Brows
     }
 
     const launchCommands = getUserProfileBrowserLaunchCommands(browserFamily, os.platform());
-    launchFirstAvailableBrowser(launchCommands, buildKeepaliveBrowserArgs(url), browserName);
+    launchFirstAvailableBrowser(launchCommands, buildKeepaliveBrowserArgs(url), browserName, {
+        outputChannel
+    });
 }
 
 function buildIsolatedBrowserArgs(url: string, profileDir: string, extensionPath: string): string[] {
@@ -228,7 +259,7 @@ function getMacBrowserLaunchCommands(browserFamily: BrowserFamily): BrowserLaunc
         return toLaunchCommands([
             '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
             path.join(home, 'Applications', 'Microsoft Edge.app', 'Contents', 'MacOS', 'Microsoft Edge')
-        ], { command: 'open', prefixArgs: ['-na', 'Microsoft Edge', '--args'] });
+        ], { fallback: { command: 'open', prefixArgs: ['-na', 'Microsoft Edge', '--args'] } });
     }
 
     return toLaunchCommands([
@@ -300,18 +331,33 @@ function getWindowsEdgeLaunchCommands(env: NodeJS.ProcessEnv): BrowserLaunchComm
         env['ProgramFiles(x86)'] ? path.join(env['ProgramFiles(x86)'], 'Microsoft', 'Edge', 'Application', 'msedge.exe') : '',
         env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Microsoft', 'Edge', 'Application', 'msedge.exe') : '',
         'msedge.exe'
-    ]);
+    ], {
+        fallback: {
+            command: env.ComSpec ?? 'cmd.exe',
+            prefixArgs: ['/d', '/c', 'start', '', 'msedge.exe'],
+            windowsHide: true
+        },
+        includeMissingAbsolute: true
+    });
 }
 
-function toLaunchCommands(candidates: Array<string | undefined | null>, fallback?: BrowserLaunchCommand): BrowserLaunchCommand[] {
+interface ToLaunchCommandOptions {
+    fallback?: BrowserLaunchCommand;
+    includeMissingAbsolute?: boolean;
+}
+
+function toLaunchCommands(
+    candidates: Array<string | undefined | null>,
+    options: ToLaunchCommandOptions = {}
+): BrowserLaunchCommand[] {
     const commands: BrowserLaunchCommand[] = candidates
         .filter(Boolean)
         .map(candidate => expandHomePath(String(candidate)))
-        .filter(candidate => !path.isAbsolute(candidate) || fs.existsSync(candidate))
+        .filter(candidate => options.includeMissingAbsolute === true || !path.isAbsolute(candidate) || fs.existsSync(candidate))
         .map(command => ({ command, prefixArgs: [] }));
 
-    if (fallback) {
-        commands.push(fallback);
+    if (options.fallback) {
+        commands.push(options.fallback);
     }
 
     return commands;
