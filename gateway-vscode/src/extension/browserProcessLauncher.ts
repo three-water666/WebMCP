@@ -6,6 +6,7 @@ import { t } from '../i18n';
 export interface BrowserLaunchCommand {
     command: string;
     prefixArgs: string[];
+    transformBrowserArgs?: (browserArgs: string[]) => string[];
     windowsHide?: boolean;
 }
 
@@ -54,10 +55,11 @@ function launchBrowserCandidate(
     let settled = false;
     let stableTimer: NodeJS.Timeout | undefined;
     const displayCommand = formatCommandForLog(launchCommand, browserArgs);
+    const commandBrowserArgs = getCommandBrowserArgs(launchCommand, browserArgs);
 
     logBrowserLaunch(outputChannel, `Trying ${browserName}: ${displayCommand}`);
 
-    const child = spawn(launchCommand.command, [...launchCommand.prefixArgs, ...browserArgs], {
+    const child = spawn(launchCommand.command, [...launchCommand.prefixArgs, ...commandBrowserArgs], {
         detached: true,
         stdio: 'ignore',
         windowsHide: launchCommand.windowsHide ?? false
@@ -162,11 +164,21 @@ function logBrowserLaunch(outputChannel: vscode.OutputChannel | undefined, messa
 }
 
 function formatCommandForLog(launchCommand: BrowserLaunchCommand, browserArgs: string[]): string {
-    return formatArgsForLog([launchCommand.command, ...launchCommand.prefixArgs, ...browserArgs]);
+    const commandBrowserArgs = getCommandBrowserArgs(launchCommand, browserArgs.map(redactArgForLog));
+
+    return formatArgsForLog([launchCommand.command, ...launchCommand.prefixArgs, ...commandBrowserArgs], {
+        alreadyRedacted: true
+    });
 }
 
-function formatArgsForLog(args: string[]): string {
-    return args.map(arg => quoteArgForLog(redactArgForLog(arg))).join(' ');
+function getCommandBrowserArgs(launchCommand: BrowserLaunchCommand, browserArgs: string[]): string[] {
+    return launchCommand.transformBrowserArgs?.(browserArgs) ?? browserArgs;
+}
+
+function formatArgsForLog(args: string[], options: { alreadyRedacted?: boolean } = {}): string {
+    return args
+        .map(arg => quoteArgForLog(options.alreadyRedacted ? arg : redactArgForLog(arg)))
+        .join(' ');
 }
 
 function quoteArgForLog(arg: string): string {

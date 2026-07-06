@@ -12,6 +12,7 @@ import { prepareIsolatedProfileDirForLaunch } from './isolatedProfileLaunch';
 import { expandHomePath, type BrowserFamily } from './isolatedBrowserProfiles';
 import { isBrowserProcessRunning } from './processDetection';
 import type { AISiteConfig } from './types';
+import { escapeWindowsCmdArgument } from './windowsCmdArguments';
 
 interface LaunchBridgeOptions {
     context: vscode.ExtensionContext;
@@ -335,6 +336,7 @@ function getWindowsEdgeLaunchCommands(env: NodeJS.ProcessEnv): BrowserLaunchComm
         fallback: {
             command: env.ComSpec ?? 'cmd.exe',
             prefixArgs: ['/d', '/c', 'start', '', 'msedge.exe'],
+            transformBrowserArgs: args => args.map(escapeWindowsCmdArgument),
             windowsHide: true
         },
         includeMissingAbsolute: true
