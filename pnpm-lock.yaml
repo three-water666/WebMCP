@@ -48,6 +48,9 @@ importers:
 
   evals:
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -72,6 +75,9 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
   gateway-vscode:
     dependencies:

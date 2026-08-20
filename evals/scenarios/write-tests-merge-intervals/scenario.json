@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "write-tests-merge-intervals",
+  "title": "Add effective tests for interval merging",
+  "kind": "agent-eval",
+  "category": "write-tests",
+  "difficulty": "medium",
+  "fixture": "./fixture",
+  "task": "./task.md",
+  "grader": "./grader.mjs",
+  "timeoutMs": 300000
+}

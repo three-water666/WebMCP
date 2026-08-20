@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "implement-feature-slugify",
+  "title": "Implement a production slugify helper",
+  "kind": "agent-eval",
+  "category": "implement-feature",
+  "difficulty": "medium",
+  "fixture": "./fixture",
+  "task": "./task.md",
+  "grader": "./grader.mjs",
+  "timeoutMs": 240000
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "use-mcp-customer-report",
+  "title": "Use a mock CRM MCP server to prepare a customer report",
+  "kind": "agent-eval",
+  "category": "use-mcp",
+  "difficulty": "medium",
+  "fixture": "./fixture",
+  "task": "./task.md",
+  "grader": "./grader.mjs",
+  "timeoutMs": 240000,
+  "requiredToolCalls": [
+    {
+      "name": "crm:lookup_customer",
+      "minimum": 1,
+      "arguments": { "customerId": "CUST-1042" }
+    }
+  ],
+  "mcpServers": [
+    {
+      "id": "crm",
+      "type": "stdio",
+      "command": "node",
+      "args": ["./mock-mcp-server.mjs"]
+    }
+  ]
+}

@@ -43,6 +43,7 @@ suite('Deterministic minimal E2E', () => {
 
         const runId = path.basename(runDirectory);
         const scenario = await loadScenario(scenarioPath);
+        assert.strictEqual(scenario.kind, 'contract-e2e', 'The minimal E2E requires a contract scenario.');
         fixtureSite = new DeterministicFixtureSite(scenario, runId, tracePath);
         const fixtureUrl = await fixtureSite.start();
 

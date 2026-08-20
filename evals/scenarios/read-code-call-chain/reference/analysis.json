@@ -1,0 +1,6 @@
+{
+  "callChain": ["quoteOrder", "calculateSubtotal", "vipDiscount", "calculateTax"],
+  "discountRule": "VIP customers receive a 10% discount on the subtotal before tax.",
+  "taxRounding": "Tax is rounded to the nearest cent after applying the regional rate.",
+  "unknownRegionBehavior": "Unsupported region: <region>"
+}

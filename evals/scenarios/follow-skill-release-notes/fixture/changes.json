@@ -1,0 +1,11 @@
+{
+  "version": "1.4.0",
+  "date": "2026-08-20",
+  "upgradeNote": "No migration is required.",
+  "changes": [
+    { "id": 20, "type": "fix", "public": true, "text": "prevent duplicate tool calls after streaming updates" },
+    { "id": 10, "type": "feature", "public": true, "text": "add faster workspace search" },
+    { "id": 15, "type": "feature", "public": false, "text": "replace internal trace buffer" },
+    { "id": 30, "type": "fix", "public": false, "text": "simplify CI cache keys" }
+  ]
+}

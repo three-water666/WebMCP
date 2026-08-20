@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "read-code-call-chain",
+  "title": "Read code and explain the checkout call chain",
+  "kind": "agent-eval",
+  "category": "read-code",
+  "difficulty": "easy",
+  "fixture": "./fixture",
+  "task": "./task.md",
+  "grader": "./grader.mjs",
+  "timeoutMs": 180000
+}

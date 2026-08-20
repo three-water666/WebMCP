@@ -8,12 +8,12 @@
 - [x] 第 2 步：建立场景加载、隔离工作区和运行产物骨架。
 - [x] 第 3 步：输出结构化运行轨迹。
 - [x] 第 4 步：打通确定性最小 E2E。
-- [ ] 第 5 步：建设首批真实任务场景。
+- [x] 第 5 步：建设首批真实任务场景。
 - [ ] 第 6 步：接入真实模型评测。
 - [ ] 第 7 步：建立真实网页验收。
 - [ ] 第 8 步：接入 CI、基线比较和优化闭环。
 
-本阶段只落实到第 4 步。后续步骤保留为路线图，不在当前实现范围内。
+当前实现落实到第 5 步。真实模型执行、真实网页验收和 CI 基线仍保留为后续路线图。
 
 ## 评测分层
 
@@ -47,14 +47,24 @@
 
 ## 首批计划场景
 
-1. 读取代码并解释调用链。
-2. 根据需求实现小功能。
-3. 根据复现步骤修复 Bug。
-4. 为已有代码补充有效测试。
-5. 发现、读取并遵循工作区 Skill。
-6. 调用本地 mock MCP 完成任务。
+1. `read-code-call-chain`：读取代码并解释调用链。
+2. `implement-feature-slugify`：根据需求实现字符串 slug 功能。
+3. `fix-bug-cart-total`：根据复现说明修复优惠和税费顺序 Bug。
+4. `write-tests-merge-intervals`：补充能杀死三个回归变体的有效测试。
+5. `follow-skill-release-notes`：发现、读取并遵循工作区 Skill。
+6. `use-mcp-customer-report`：调用本地 mock CRM MCP 完成客户报告。
 
 错误恢复和安全边界场景将在上述基础场景稳定后补充。
+
+每个真实任务场景由四部分组成：
+
+- `fixture/`：复制给 Agent 的隔离工作区，不包含答案和评分器。
+- `task.md`：交给 Agent 的任务说明。
+- `grader.mjs`：不会复制进工作区的隐藏自动评分器。
+- `reference/`：用于验证评分器自身不会误杀正确答案的参考结果。
+
+Skill 和 MCP 场景除了检查最终文件，还会检查 Gateway trace 中的真实工具调用和参数证据。
+因此仅猜中结果但没有读取 Skill 或调用 MCP 仍然是硬失败。
 
 ## 失败归因
 
@@ -86,6 +96,27 @@
 ```bash
 pnpm test:e2e:minimal
 ```
+
+列出首批真实任务：
+
+```bash
+pnpm eval:scenarios list
+```
+
+准备一个隔离的手动运行目录：
+
+```bash
+pnpm eval:scenarios prepare implement-feature-slugify
+```
+
+命令会输出任务文件、隔离 workspace、Gateway MCP 配置和 run 目录。Agent 完成任务后评分：
+
+```bash
+pnpm eval:scenarios grade <run-directory>
+```
+
+评分结果写入该运行目录的 `grade.json`，同时更新 `run.json`。第 6 步会把 prepare、真实模型执行和
+grade 串成一次全自动运行。
 
 可选环境变量：
 

@@ -33,6 +33,8 @@ type ParsedToolCallRequest = {
     requestId?: string;
 };
 
+const TRACE_EVIDENCE_ARGUMENTS = new Set(['path', 'customerId']);
+
 export function createToolCallHandler(options: ToolCallHandlerOptions): express.RequestHandler {
     return async (req, res) => {
         const toolStart = Date.now();
@@ -129,7 +131,8 @@ async function executeLocalTool(
             event: 'tool_call_started',
             requestId: request.requestId,
             toolName: request.name,
-            status: 'started'
+            status: 'started',
+            details: createTraceArgumentDetails(request.args)
         });
         const result = await localTool.execute(request.args, options.createToolExecutionContext());
         const toolDuration = Date.now() - toolStart;
@@ -170,7 +173,8 @@ async function executeRemoteTool(
             event: 'tool_call_started',
             requestId: request.requestId,
             toolName: request.name,
-            status: 'started'
+            status: 'started',
+            details: createTraceArgumentDetails(request.args)
         });
         const result = await route.client.callTool({ name: route.toolName, arguments: request.args ?? {} });
         const toolDuration = Date.now() - toolStart;
@@ -202,4 +206,17 @@ function sendToolError(res: Response, status: number, text: string) {
         isError: true,
         content: [{ type: 'text', text }]
     });
+}
+
+function createTraceArgumentDetails(args: Record<string, unknown>): Record<string, unknown> {
+    const evidenceArguments = Object.fromEntries(
+        Object.entries(args).filter(([key, value]) => (
+            TRACE_EVIDENCE_ARGUMENTS.has(key)
+            && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+        ))
+    );
+    return {
+        argumentKeys: Object.keys(args).sort(),
+        arguments: evidenceArguments
+    };
 }

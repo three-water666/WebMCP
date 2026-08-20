@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "fix-bug-cart-total",
+  "title": "Fix discount and tax ordering in cart totals",
+  "kind": "agent-eval",
+  "category": "fix-bug",
+  "difficulty": "medium",
+  "fixture": "./fixture",
+  "task": "./task.md",
+  "grader": "./grader.mjs",
+  "timeoutMs": 240000
+}

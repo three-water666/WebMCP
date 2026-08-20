@@ -1,7 +1,7 @@
 import * as http from 'node:http';
 
 import { appendEvalTrace, type EvalTraceEvent } from '../harness/trace';
-import type { EvalScenario } from '../harness/scenario';
+import type { ContractE2EScenario } from '../harness/scenario';
 
 type FixtureSiteEvent = Omit<EvalTraceEvent, 'runId' | 'source' | 'timestamp'> & {
     timestamp?: string;
@@ -13,7 +13,7 @@ export class DeterministicFixtureSite {
     private readonly receivedEvents: FixtureSiteEvent[] = [];
 
     public constructor(
-        private readonly scenario: EvalScenario,
+        private readonly scenario: ContractE2EScenario,
         private readonly runId: string,
         private readonly tracePath: string
     ) {
@@ -91,7 +91,7 @@ export class DeterministicFixtureSite {
 
 // The page is intentionally self-contained so the browser E2E has no asset server or bundler dependency.
 // eslint-disable-next-line max-lines-per-function
-function buildFixturePage(scenario: EvalScenario): string {
+function buildFixturePage(scenario: ContractE2EScenario): string {
     const pageConfig = JSON.stringify({
         readContains: scenario.expected.readContains,
         readPath: scenario.expected.readPath,
