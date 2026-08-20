@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "minimal-tool-loop",
+  "title": "Deterministic bridge and Gateway tool loop",
+  "kind": "contract-e2e",
+  "fixture": "../../fixtures/minimal-tool-loop",
+  "timeoutMs": 90000,
+  "expected": {
+    "readPath": "seed.txt",
+    "readContains": "webcode deterministic fixture",
+    "writtenPath": "generated/result.txt",
+    "writtenContent": "minimal e2e completed\n",
+    "toolCalls": ["read_file", "write_file"]
+  }
+}

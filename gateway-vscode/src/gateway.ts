@@ -30,6 +30,7 @@ import type {
     ServerConfig,
     StartResult
 } from './gateway/types';
+import type { GatewayRuntimeTraceSink } from './gateway/runtimeTrace';
 
 export class GatewayManager {
     private app: express.Express | null = null;
@@ -48,12 +49,20 @@ export class GatewayManager {
     private terminalSessionManager: TerminalSessionManager;
     private skillDirectories: string[] = [];
     private commandShellPath: string | undefined;
+    private readonly traceSink: GatewayRuntimeTraceSink | undefined;
 
-    constructor(outputChannel: vscode.OutputChannel, extensionPath: string, context: vscode.ExtensionContext, onAutoStop?: () => void) {
+    constructor(
+        outputChannel: vscode.OutputChannel,
+        extensionPath: string,
+        context: vscode.ExtensionContext,
+        onAutoStop?: () => void,
+        traceSink?: GatewayRuntimeTraceSink
+    ) {
         this.outputChannel = outputChannel;
         this.extensionPath = extensionPath;
         this.context = context;
         this.onAutoStop = onAutoStop ?? null;
+        this.traceSink = traceSink;
         this.skillManager = new SkillManager(outputChannel, extensionPath, () => vscode.workspace.workspaceFolders);
         this.terminalSessionManager = new TerminalSessionManager(outputChannel);
         // [Persistence] Generate token once per VS Code session
@@ -102,6 +111,10 @@ export class GatewayManager {
         const now = new Date();
         const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
         this.outputChannel.appendLine(`[${time}] ❌ ${message} ${getErrorMessage(err)}`);
+    }
+
+    private trace(event: Parameters<GatewayRuntimeTraceSink>[0]): void {
+        this.traceSink?.(event);
     }
 
     invalidateSkillCache(reason?: string) {
@@ -165,6 +178,7 @@ export class GatewayManager {
             getWorkspaceRoot: () => this.getPrimaryWorkspaceRoot(),
             localTools: this.localTools,
             log: this.log.bind(this),
+            trace: this.trace.bind(this),
             toolRouter: this.toolRouter
         }));
     }
@@ -189,6 +203,11 @@ export class GatewayManager {
         this.skillDirectories = config.skillDirectories ?? [];
         const commandShellPath = config.commandShellPath?.trim();
         this.commandShellPath = commandShellPath === '' ? undefined : commandShellPath;
+        this.trace({
+            event: 'gateway_starting',
+            status: 'started',
+            details: { requestedPort: config.port }
+        });
         await this.connectToServers(config.mcpServers);
 
         // 1. 使用持久化 Token (仅首次生成)
@@ -217,6 +236,11 @@ export class GatewayManager {
                 if (!this.app) {return;}
                 this.server = this.app.listen(currentPort, '127.0.0.1', () => {
                     this.log(`🌐 Gateway running on http://127.0.0.1:${currentPort} (Token: ${this.authToken.slice(0, 8)}...)`);
+                    this.trace({
+                        event: 'gateway_started',
+                        status: 'success',
+                        details: { port: currentPort }
+                    });
                     vscode.window.setStatusBarMessage(`MCP Gateway: On (${currentPort})`, 5000);
                     resolve({ port: currentPort, token: this.authToken });
                 });
@@ -255,6 +279,7 @@ export class GatewayManager {
             this.server = null;
             // [Persistence] Do NOT clear authToken here
             this.log('🛑 Gateway server stopped.');
+            this.trace({ event: 'gateway_stopped', status: 'success' });
         }
         this.connectedClients.forEach(c => {
             try {

@@ -14,6 +14,7 @@ import type {
 import { getErrorMessage } from './errorUtils';
 import { resolveLocalPathArguments } from './pathArguments';
 import type { GatewayErrorLogger, GatewayLogger, RemoteToolRoute } from './types';
+import type { GatewayRuntimeTraceSink } from './runtimeTrace';
 
 type ToolCallHandlerOptions = {
     createToolExecutionContext: () => ToolExecutionContext;
@@ -22,12 +23,14 @@ type ToolCallHandlerOptions = {
     getWorkspaceRoot: () => string | null;
     localTools: Map<string, LocalTool>;
     log: GatewayLogger;
+    trace?: GatewayRuntimeTraceSink;
     toolRouter: Map<string, RemoteToolRoute>;
 };
 
 type ParsedToolCallRequest = {
     args: Record<string, unknown>;
     name: string;
+    requestId?: string;
 };
 
 export function createToolCallHandler(options: ToolCallHandlerOptions): express.RequestHandler {
@@ -38,6 +41,13 @@ export function createToolCallHandler(options: ToolCallHandlerOptions): express.
         if (!parsed) {
             return;
         }
+
+        options.trace?.({
+            event: 'tool_call_received',
+            requestId: parsed.requestId,
+            toolName: parsed.name,
+            status: 'started'
+        });
 
         const localTool = options.localTools.get(parsed.name);
         if (localTool) {
@@ -99,7 +109,10 @@ function parseToolCallRequest(
         return null;
     }
 
-    return { args: rawArgs, name };
+    const requestId = typeof payload.request_id === 'string' && payload.request_id.trim()
+        ? payload.request_id.trim()
+        : undefined;
+    return { args: rawArgs, name, requestId };
 }
 
 async function executeLocalTool(
@@ -112,12 +125,33 @@ async function executeLocalTool(
     try {
         const argsPreview = JSON.stringify(request.args ?? {}).slice(0, 80);
         options.log(`   🚀 Executing local tool: ${request.name} ${argsPreview}`);
+        options.trace?.({
+            event: 'tool_call_started',
+            requestId: request.requestId,
+            toolName: request.name,
+            status: 'started'
+        });
         const result = await localTool.execute(request.args, options.createToolExecutionContext());
         const toolDuration = Date.now() - toolStart;
         options.log(`   ✅ Finished local tool: ${request.name} (${toolDuration}ms)`);
+        options.trace?.({
+            event: 'tool_call_finished',
+            requestId: request.requestId,
+            toolName: request.name,
+            status: 'success',
+            durationMs: toolDuration
+        });
         return res.json(result);
     } catch (error: unknown) {
         options.error(`Local tool execution failed: ${request.name}`, error);
+        options.trace?.({
+            event: 'tool_call_finished',
+            requestId: request.requestId,
+            toolName: request.name,
+            status: 'error',
+            durationMs: Date.now() - toolStart,
+            details: { error: getErrorMessage(error) }
+        });
         return sendToolError(res, 500, `Error: ${getErrorMessage(error)}`);
     }
 }
@@ -132,12 +166,33 @@ async function executeRemoteTool(
     try {
         const argsPreview = JSON.stringify(request.args ?? {}).slice(0, 50) + '...';
         options.log(`   🚀 Executing MCP tool: ${request.name} ${argsPreview}`);
+        options.trace?.({
+            event: 'tool_call_started',
+            requestId: request.requestId,
+            toolName: request.name,
+            status: 'started'
+        });
         const result = await route.client.callTool({ name: route.toolName, arguments: request.args ?? {} });
         const toolDuration = Date.now() - toolStart;
         options.log(`   ✅ Finished: ${request.name} (${toolDuration}ms)`);
+        options.trace?.({
+            event: 'tool_call_finished',
+            requestId: request.requestId,
+            toolName: request.name,
+            status: 'success',
+            durationMs: toolDuration
+        });
         return res.json(result);
     } catch (error: unknown) {
         options.error(`Tool execution failed: ${request.name}`, error);
+        options.trace?.({
+            event: 'tool_call_finished',
+            requestId: request.requestId,
+            toolName: request.name,
+            status: 'error',
+            durationMs: Date.now() - toolStart,
+            details: { error: getErrorMessage(error) }
+        });
         return sendToolError(res, 500, `Error: ${getErrorMessage(error)}`);
     }
 }

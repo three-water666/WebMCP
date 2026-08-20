@@ -2,3 +2,4 @@ packages:
   - 'gateway-vscode'
   - 'bridge-browser'
   - 'shared'
+  - 'evals'

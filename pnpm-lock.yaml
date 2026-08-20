@@ -46,6 +46,33 @@ importers:
         specifier: ^5.0.0
         version: 5.4.21(@types/node@20.19.39)(terser@5.46.2)
 
+  evals:
+    devDependencies:
+      '@types/mocha':
+        specifier: ^10.0.10
+        version: 10.0.10
+      '@types/node':
+        specifier: 22.x
+        version: 22.19.17
+      '@types/vscode':
+        specifier: ^1.106.1
+        version: 1.116.0
+      '@vscode/test-cli':
+        specifier: ^0.0.12
+        version: 0.0.12
+      '@vscode/test-electron':
+        specifier: ^2.5.2
+        version: 2.5.2
+      mocha:
+        specifier: ^11.7.5
+        version: 11.7.5
+      playwright-core:
+        specifier: ^1.62.1
+        version: 1.62.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   gateway-vscode:
     dependencies:
       '@modelcontextprotocol/sdk':
@@ -2385,6 +2412,11 @@ packages:
   pkg-dir@4.2.0:
     resolution: {integrity: sha512-HRDzbaKjC+AOWVXxAU/x54COGeIv9eb+6CkDSQoNTt4XyWoIJvuPsXizxu/Fr23EiekbtZwmh1IcIG/l/a10GQ==}
     engines: {node: '>=8'}
+
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   pluralize@2.0.0:
     resolution: {integrity: sha512-TqNZzQCD4S42De9IfnnBvILN7HAW7riLqsCyp8lgjXeysyPlX5HhqKAcJHHHb9XskE4/a+7VGC9zzx8Ls0jOAw==}
@@ -5526,6 +5558,8 @@ snapshots:
   pkg-dir@4.2.0:
     dependencies:
       find-up: 4.1.0
+
+  playwright-core@1.62.1: {}
 
   pluralize@2.0.0: {}
 

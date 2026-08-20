@@ -1,0 +1,22 @@
+{
+  "name": "@webcode/evals",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "pnpm run build",
+    "test": "mocha --ui tdd \"out/unit-test/**/*.test.js\"",
+    "e2e:minimal:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",
+    "e2e:minimal": "pnpm run e2e:minimal:prepare && node scripts/run-minimal-e2e.mjs"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.106.1",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "mocha": "^11.7.5",
+    "playwright-core": "^1.62.1",
+    "typescript": "^5.9.3"
+  }
+}
