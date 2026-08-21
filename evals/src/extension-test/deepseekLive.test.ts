@@ -8,6 +8,8 @@ import { appendEvalTrace } from '../harness/trace';
 import { loadScenario } from '../harness/scenario';
 import {
     captureDeepSeekArtifacts,
+    ensureDeepSeekDeepThinking,
+    selectDeepSeekModelMode,
     openDeepSeekPage,
     submitLiveTask,
     waitForDeepSeekLogin,
@@ -61,6 +63,12 @@ suite('DeepSeek live-site evaluation', () => {
             browserContext = await launchLiveBrowser(browserPath, profilePath);
             livePage = await openDeepSeekPage(browserContext, bridgeUrl, site.address, trace);
             await waitForDeepSeekLogin(livePage, site.selectors, readPositiveInteger('WEBCODE_LIVE_LOGIN_TIMEOUT_MS'), trace);
+            await selectDeepSeekModelMode(livePage, process.env.WEBCODE_LIVE_MODEL_MODE?.trim(), trace);
+            await ensureDeepSeekDeepThinking(
+                livePage,
+                readOptionalBoolean('WEBCODE_LIVE_DEEP_THINKING'),
+                trace
+            );
             await waitForManualDeepSeekSetup(
                 readNonNegativeInteger('WEBCODE_LIVE_SETUP_DELAY_MS'),
                 trace
@@ -173,6 +181,17 @@ function readNonNegativeInteger(name: string): number {
         throw new Error(`${name} must be a non-negative integer.`);
     }
     return value;
+}
+
+function readOptionalBoolean(name: string): boolean | undefined {
+    const value = process.env[name]?.trim();
+    if (!value) {
+        return undefined;
+    }
+    if (value !== '0' && value !== '1') {
+        throw new Error(`${name} must be "0" or "1".`);
+    }
+    return value === '1';
 }
 
 function requireEnvironmentPath(name: string): string {

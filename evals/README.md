@@ -162,6 +162,18 @@ pnpm eval:deepseek read-code-call-chain
 
 登录就绪后，Runner 会暂停 90 秒再发送任务。默认值为 `0`，即不额外等待。
 
+DeepSeek 的专家模式可能在新对话中重置为快速模式。可在每次发送任务前自动选择专家模式：
+
+```powershell
+$env:WEBCODE_LIVE_MODEL_MODE = 'expert'
+$env:WEBCODE_LIVE_DEEP_THINKING = '1'
+pnpm eval:deepseek read-code-call-chain
+```
+
+模型模式当前只支持 `expert`；深度思考可设为 `1`（开启）或 `0`（关闭）。Runner 根据模式 radio 的
+`data-model-type`、`aria-checked` 和深度思考 toggle 的 `aria-pressed` 验证真实状态。如果页面结构变化
+导致无法确认，评测会停止并归为站点兼容问题，不会在错误模式下悄悄继续。
+
 ### 首次实跑基线
 
 2026-08-21 使用 DeepSeek 两次运行 `read-code-call-chain`。登录、真实页面、bridge、Gateway、任务

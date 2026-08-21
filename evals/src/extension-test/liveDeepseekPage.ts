@@ -48,6 +48,66 @@ export async function waitForDeepSeekLogin(
     appendBrowserTrace(trace, 'deepseek_login_ready', 'success', { url: page.url() });
 }
 
+export async function selectDeepSeekModelMode(
+    page: Page,
+    modelMode: string | undefined,
+    trace: LiveTraceContext
+): Promise<void> {
+    if (!modelMode) {
+        return;
+    }
+    if (modelMode !== 'expert') {
+        throw new Error(`Unsupported DeepSeek model mode: ${modelMode}`);
+    }
+
+    const selector = '[role="radio"][data-model-type="expert"]';
+    const expertMode = page.locator(selector);
+    await expertMode.waitFor({ state: 'visible', timeout: 15_000 });
+    const wasSelected = await expertMode.getAttribute('aria-checked') === 'true';
+    if (!wasSelected) {
+        await expertMode.click();
+        await waitForAttribute(page, selector, 'aria-checked', 'true');
+    }
+    const isSelected = await expertMode.getAttribute('aria-checked') === 'true';
+    if (!isSelected) {
+        throw new Error('DeepSeek expert mode did not become selected.');
+    }
+    appendBrowserTrace(
+        trace,
+        wasSelected ? 'deepseek_model_mode_ready' : 'deepseek_model_mode_selected',
+        'success',
+        { modelMode, selector }
+    );
+    console.log(`DeepSeek expert mode ${wasSelected ? 'already selected' : 'selected automatically'}.`);
+}
+
+export async function ensureDeepSeekDeepThinking(
+    page: Page,
+    enabled: boolean | undefined,
+    trace: LiveTraceContext
+): Promise<void> {
+    if (enabled === undefined) {
+        return;
+    }
+    const selector = '[aria-pressed]';
+    const toggle = page.locator(selector).filter({ hasText: '深度思考' }).first();
+    await toggle.waitFor({ state: 'visible', timeout: 15_000 });
+    const wasEnabled = await toggle.getAttribute('aria-pressed') === 'true';
+    if (wasEnabled !== enabled) {
+        await toggle.click();
+        await waitForDeepThinkingState(page, enabled);
+    }
+    const isEnabled = await toggle.getAttribute('aria-pressed') === 'true';
+    if (isEnabled !== enabled) {
+        throw new Error(`DeepSeek Deep Thinking did not become ${enabled ? 'enabled' : 'disabled'}.`);
+    }
+    appendBrowserTrace(trace, 'deepseek_deep_thinking_ready', 'success', {
+        enabled,
+        changed: wasEnabled !== enabled,
+    });
+    console.log(`DeepSeek Deep Thinking is ${enabled ? 'enabled' : 'disabled'}.`);
+}
+
 export async function waitForManualDeepSeekSetup(
     delayMs: number,
     trace: LiveTraceContext
@@ -319,4 +379,30 @@ function appendBrowserTrace(
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function waitForAttribute(
+    page: Page,
+    selector: string,
+    attribute: string,
+    expected: string
+): Promise<void> {
+    await page.waitForFunction(
+        ({ attributeName, expectedValue, targetSelector }) => (
+            document.querySelector(targetSelector)?.getAttribute(attributeName) === expectedValue
+        ),
+        { attributeName: attribute, expectedValue: expected, targetSelector: selector },
+        { timeout: 10_000 }
+    );
+}
+
+async function waitForDeepThinkingState(page: Page, enabled: boolean): Promise<void> {
+    await page.waitForFunction(
+        expected => Array.from(document.querySelectorAll<HTMLElement>('[aria-pressed]')).some(element => (
+            element.textContent?.trim() === '深度思考'
+                && element.getAttribute('aria-pressed') === String(expected)
+        )),
+        enabled,
+        { timeout: 10_000 }
+    );
 }

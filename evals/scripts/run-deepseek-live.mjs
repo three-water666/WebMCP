@@ -86,10 +86,12 @@ const child = spawn(process.execPath, [
     WEBCODE_EVAL_VSCODE_PATH: vscodePath,
     WEBCODE_EVAL_WORKSPACE: run.workspacePath,
     WEBCODE_LIVE_APPROVED_TOOLS: approvedTools.join(','),
+    WEBCODE_LIVE_DEEP_THINKING: readBooleanFlag('WEBCODE_LIVE_DEEP_THINKING'),
     WEBCODE_LIVE_LOGIN_TIMEOUT_MS: readTimeout(
       'WEBCODE_LIVE_LOGIN_TIMEOUT_MS',
       DEFAULT_LOGIN_TIMEOUT_MS
     ),
+    WEBCODE_LIVE_MODEL_MODE: readModelMode(),
     WEBCODE_LIVE_PROFILE_PATH: profilePath,
     WEBCODE_LIVE_SETUP_DELAY_MS: readDelay(
       'WEBCODE_LIVE_SETUP_DELAY_MS',
@@ -218,6 +220,28 @@ function readDelay(name, fallback) {
     throw new Error(`${name} must be a non-negative integer.`);
   }
   return String(value);
+}
+
+function readModelMode() {
+  const value = process.env.WEBCODE_LIVE_MODEL_MODE?.trim();
+  if (!value) {
+    return undefined;
+  }
+  if (value !== 'expert') {
+    throw new Error('WEBCODE_LIVE_MODEL_MODE currently supports only "expert".');
+  }
+  return value;
+}
+
+function readBooleanFlag(name) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    return undefined;
+  }
+  if (value !== '0' && value !== '1') {
+    throw new Error(`${name} must be "0" or "1".`);
+  }
+  return value;
 }
 
 async function updateRunManifest(patch) {
