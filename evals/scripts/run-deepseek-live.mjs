@@ -14,6 +14,7 @@ import { resolveBrowserPath, resolveVsCodePath } from './runtime-paths.mjs';
 const DEFAULT_SCENARIO_ID = 'read-code-call-chain';
 const DEFAULT_LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_SETUP_DELAY_MS = 0;
 const SAFE_LOCAL_TOOLS = [
   'edit_file',
   'get_project_context',
@@ -90,6 +91,10 @@ const child = spawn(process.execPath, [
       DEFAULT_LOGIN_TIMEOUT_MS
     ),
     WEBCODE_LIVE_PROFILE_PATH: profilePath,
+    WEBCODE_LIVE_SETUP_DELAY_MS: readDelay(
+      'WEBCODE_LIVE_SETUP_DELAY_MS',
+      DEFAULT_SETUP_DELAY_MS
+    ),
     WEBCODE_LIVE_RUN_TIMEOUT_MS: readTimeout(
       'WEBCODE_LIVE_RUN_TIMEOUT_MS',
       Math.max(DEFAULT_RUN_TIMEOUT_MS, scenario.timeoutMs)
@@ -199,6 +204,18 @@ function readTimeout(name, fallback) {
   const value = Number(configured);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer.`);
+  }
+  return String(value);
+}
+
+function readDelay(name, fallback) {
+  const configured = process.env[name]?.trim();
+  if (!configured) {
+    return String(fallback);
+  }
+  const value = Number(configured);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer.`);
   }
   return String(value);
 }

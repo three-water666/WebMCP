@@ -48,6 +48,20 @@ export async function waitForDeepSeekLogin(
     appendBrowserTrace(trace, 'deepseek_login_ready', 'success', { url: page.url() });
 }
 
+export async function waitForManualDeepSeekSetup(
+    delayMs: number,
+    trace: LiveTraceContext
+): Promise<void> {
+    if (delayMs === 0) {
+        return;
+    }
+    appendBrowserTrace(trace, 'deepseek_manual_setup_waiting', 'started', { delayMs });
+    console.log(`\nDeepSeek manual setup window: ${Math.ceil(delayMs / 1000)} seconds.`);
+    console.log('Select the desired model and enable Deep Thinking before the timer ends.\n');
+    await delay(delayMs);
+    appendBrowserTrace(trace, 'deepseek_manual_setup_finished', 'success', { delayMs });
+}
+
 export async function submitLiveTask(
     page: Page,
     selectors: LiveSiteSelectors,

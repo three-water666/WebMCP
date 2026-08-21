@@ -153,6 +153,15 @@ Runner 会自动准备隔离 workspace，启动 VS Code Extension Host、Gateway
 `WEBCODE_LIVE_RUN_TIMEOUT_MS`。`WEBCODE_LIVE_PROFILE_PATH` 可切换专用浏览器资料目录；
 `WEBCODE_LIVE_APPROVED_TOOLS` 可显式覆盖自动审批白名单。
 
+如果需要在发送任务前手动切换模型、开启深度思考或调整页面选项，可设置等待时间：
+
+```powershell
+$env:WEBCODE_LIVE_SETUP_DELAY_MS = '90000'
+pnpm eval:deepseek read-code-call-chain
+```
+
+登录就绪后，Runner 会暂停 90 秒再发送任务。默认值为 `0`，即不额外等待。
+
 ### 首次实跑基线
 
 2026-08-21 使用 DeepSeek 两次运行 `read-code-call-chain`。登录、真实页面、bridge、Gateway、任务

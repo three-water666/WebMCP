@@ -11,6 +11,7 @@ import {
     openDeepSeekPage,
     submitLiveTask,
     waitForDeepSeekLogin,
+    waitForManualDeepSeekSetup,
     waitForLiveCompletion
 } from './liveDeepseekPage';
 import type { LiveSiteConfiguration } from './liveDeepseekTypes';
@@ -60,6 +61,10 @@ suite('DeepSeek live-site evaluation', () => {
             browserContext = await launchLiveBrowser(browserPath, profilePath);
             livePage = await openDeepSeekPage(browserContext, bridgeUrl, site.address, trace);
             await waitForDeepSeekLogin(livePage, site.selectors, readPositiveInteger('WEBCODE_LIVE_LOGIN_TIMEOUT_MS'), trace);
+            await waitForManualDeepSeekSetup(
+                readNonNegativeInteger('WEBCODE_LIVE_SETUP_DELAY_MS'),
+                trace
+            );
 
             const task = await fs.readFile(scenario.taskPath, 'utf8');
             const initialMessageCount = await submitLiveTask(livePage, site.selectors, task, trace);
@@ -158,6 +163,14 @@ function readPositiveInteger(name: string): number {
     const value = Number(requireEnvironmentPath(name));
     if (!Number.isInteger(value) || value <= 0) {
         throw new Error(`${name} must be a positive integer.`);
+    }
+    return value;
+}
+
+function readNonNegativeInteger(name: string): number {
+    const value = Number(requireEnvironmentPath(name));
+    if (!Number.isInteger(value) || value < 0) {
+        throw new Error(`${name} must be a non-negative integer.`);
     }
     return value;
 }
