@@ -9,11 +9,11 @@
 - [x] 第 3 步：输出结构化运行轨迹。
 - [x] 第 4 步：打通确定性最小 E2E。
 - [x] 第 5 步：建设首批真实任务场景。
-- [ ] 第 6 步：接入真实模型评测。
-- [ ] 第 7 步：建立真实网页验收。
+- [x] 第 6 步：接入真实模型 API 评测（按当前决策跳过，不购买 API Key）。
+- [x] 第 7 步：建立 DeepSeek 真实网页验收。
 - [ ] 第 8 步：接入 CI、基线比较和优化闭环。
 
-当前实现落实到第 5 步。真实模型执行、真实网页验收和 CI 基线仍保留为后续路线图。
+当前直接通过 DeepSeek 网页执行第 5 步的真实任务，不依赖模型 API。CI 基线仍保留为后续路线图。
 
 ## 评测分层
 
@@ -29,7 +29,7 @@
 
 ### Live-site Smoke
 
-验证 ChatGPT、Gemini 等真实网页的选择器、流式输出捕获、结果回填和自动发送仍然兼容。
+验证 DeepSeek 等真实网页的选择器、流式输出捕获、结果回填和自动发送仍然兼容。
 这一层受账号、限流和站点改版影响，默认作为发版前手动或半自动验收。
 
 ## 判分原则
@@ -115,13 +115,62 @@ pnpm eval:scenarios prepare implement-feature-slugify
 pnpm eval:scenarios grade <run-directory>
 ```
 
-评分结果写入该运行目录的 `grade.json`，同时更新 `run.json`。第 6 步会把 prepare、真实模型执行和
-grade 串成一次全自动运行。
+评分结果写入该运行目录的 `grade.json`，同时更新 `run.json`。DeepSeek 真实网页 Runner 会把
+prepare、网页模型执行和 grade 串成一次半自动运行。
+
+## DeepSeek 真实网页验收
+
+默认用 DeepSeek 执行 `read-code-call-chain`：
+
+```bash
+pnpm eval:deepseek
+```
+
+也可以选择任一第 5 步场景：
+
+```bash
+pnpm eval:deepseek implement-feature-slugify
+```
+
+Runner 会自动准备隔离 workspace，启动 VS Code Extension Host、Gateway、browser bridge 和一个
+真实 Edge 窗口，把任务与 `/webcode` 初始化上下文发送给 DeepSeek，最后运行隐藏评分器。第一次
+运行需要在该 Edge 窗口中登录 DeepSeek；登录状态会保存在被 Git 忽略的
+`evals/live-profiles/deepseek/`，后续运行通常无需再次登录。
+
+`read_file`、`write_file`、搜索、项目上下文和 Skills 等限定在隔离 workspace 内的工具会自动批准。
+场景声明的本地 mock MCP 工具也会自动批准。命令执行、终端工具和未列入白名单的工具不会自动
+批准，出现弹框时需要人工核对并点击允许。验证码、账号异常和站点风控同样需要人工处理。
+
+每次运行会在 `evals/runs/<run-id>/` 留下：
+
+- `live-report.json`：网页执行、自动/人工审批数量、评分和失败归因。
+- `grade.json`：场景隐藏评分器结果。
+- `trace.jsonl`：Runner、网页、Gateway 和工具调用的结构化事件。
+- `deepseek-conversation.txt`、页面诊断 JSON 和成功或失败截图。
+- 最终隔离 workspace，可用于检查模型修改和复现问题。
+
+可通过环境变量调整登录和任务超时：`WEBCODE_LIVE_LOGIN_TIMEOUT_MS`、
+`WEBCODE_LIVE_RUN_TIMEOUT_MS`。`WEBCODE_LIVE_PROFILE_PATH` 可切换专用浏览器资料目录；
+`WEBCODE_LIVE_APPROVED_TOOLS` 可显式覆盖自动审批白名单。
+
+### 首次实跑基线
+
+2026-08-21 使用 DeepSeek 两次运行 `read-code-call-chain`。登录、真实页面、bridge、Gateway、任务
+发送、工具结果回填、完成检测和隐藏评分链路全部正常：
+
+- 第一次输出了三段 `Calling: read_file` 近似工具调用，但没有遵循 webcode JSON 协议，文件读取未执行。
+- 第二次正确调用并自动批准了三次 `read_file`，但只在聊天中展示最终 JSON，没有调用 `write_file`
+  创建 `analysis.json`。
+
+两次都因 `analysis.json` 不存在而得分 0，失败归因为 `model`。当前首要优化方向是强化 DeepSeek 平台
+提示中的协议约束和“必须用工具落地交付物”的完成条件，并考虑在评分失败时触发一次针对缺失交付物
+的自动追问。Live report 已包含 `protocolNearMissDetected`、任务发送后的实际工具调用数和对应
+warning，便于修改提示后对比复测。
 
 可选环境变量：
 
 - `WEBCODE_EVAL_BROWSER_PATH`：Edge、Chrome 或 Chromium 可执行文件路径。
-- `WEBCODE_EVAL_VSCODE_PATH`：VS Code 可执行文件路径。
+- `WEBCODE_EVAL_VSCODE_PATH`：VS Code 可执行文件路径；设为 `download` 时使用隔离的固定测试版本。
 - `VSCODE_TEST_VERSION`：没有指定本机 VS Code 时使用的测试版本，默认 `1.106.1`。
 
 运行产物保存在 `evals/runs/`，其中包含隔离工作区、`run.json` 和 `trace.jsonl`。该目录不会提交。

@@ -14,6 +14,12 @@ import { updateGatewayStatusBar } from './extension/statusBar';
 import { GatewayManager } from './gateway';
 import { createGatewayRuntimeTraceSinkFromEnvironment } from './gateway/runtimeTrace';
 import { t } from './i18n';
+import {
+    findAiSiteById,
+    getConfiguredAiSites,
+    type AISiteConfig,
+    type ResolvedAiSiteConfig
+} from './platforms';
 
 interface RuntimeHolder {
     serviceController?: GatewayServiceController;
@@ -28,6 +34,7 @@ export interface GatewayExtensionState {
 export interface GatewayExtensionApi {
     getGatewayState(): GatewayExtensionState;
     evaluation?: {
+        getSiteConfiguration(siteId: string): ResolvedAiSiteConfig;
         startAndCreateBridgeUrl(siteId: string, targetUrl: string): Promise<string>;
         stop(): Promise<void>;
     };
@@ -143,6 +150,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
 
     if (process.env.WEBCODE_EVAL_MODE === '1') {
         api.evaluation = {
+            getSiteConfiguration(siteId: string): ResolvedAiSiteConfig {
+                const configured = vscode.workspace
+                    .getConfiguration('webcodeGateway')
+                    .get<AISiteConfig[]>('aiSites');
+                const site = findAiSiteById(getConfiguredAiSites(configured), siteId);
+                if (!site) {
+                    throw new Error(`Evaluation site is not configured: ${siteId}`);
+                }
+                return site;
+            },
             async startAndCreateBridgeUrl(siteId: string, targetUrl: string): Promise<string> {
                 await serviceController.start();
                 const state = serviceController.getState();

@@ -6,7 +6,7 @@ const workspaceFolder = requireEnvironmentPath('WEBCODE_EVAL_WORKSPACE');
 const vscodeExecutablePath = process.env.WEBCODE_EVAL_VSCODE_PATH?.trim();
 
 export default defineConfig({
-  files: 'out/extension-test/minimalE2E.test.js',
+  files: 'out/extension-test/deepseekLive.test.js',
   version: process.env.VSCODE_TEST_VERSION?.trim() || '1.106.1',
   extensionDevelopmentPath,
   workspaceFolder,
@@ -21,19 +21,23 @@ export default defineConfig({
     WEBCODE_EVAL_RUN_DIR: process.env.WEBCODE_EVAL_RUN_DIR,
     WEBCODE_EVAL_SCENARIO_PATH: process.env.WEBCODE_EVAL_SCENARIO_PATH,
     WEBCODE_EVAL_TRACE_PATH: process.env.WEBCODE_EVAL_TRACE_PATH,
+    WEBCODE_LIVE_APPROVED_TOOLS: process.env.WEBCODE_LIVE_APPROVED_TOOLS,
+    WEBCODE_LIVE_LOGIN_TIMEOUT_MS: process.env.WEBCODE_LIVE_LOGIN_TIMEOUT_MS,
+    WEBCODE_LIVE_PROFILE_PATH: process.env.WEBCODE_LIVE_PROFILE_PATH,
+    WEBCODE_LIVE_RUN_TIMEOUT_MS: process.env.WEBCODE_LIVE_RUN_TIMEOUT_MS,
   },
   ...(vscodeExecutablePath
     ? { useInstallation: { fromPath: vscodeExecutablePath } }
     : {}),
   mocha: {
-    timeout: 120_000,
+    timeout: 30 * 60 * 1000,
   },
 });
 
 function requireEnvironmentPath(name) {
   const value = process.env[name]?.trim();
   if (!value) {
-    throw new Error(`Missing required environment variable ${name}. Run the E2E through scripts/run-minimal-e2e.mjs.`);
+    throw new Error(`Missing required environment variable ${name}. Run through scripts/run-deepseek-live.mjs.`);
   }
   return value;
 }

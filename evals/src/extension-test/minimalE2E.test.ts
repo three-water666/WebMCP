@@ -15,6 +15,7 @@ interface EvaluationExtensionApi {
         isRunning: boolean;
     };
     evaluation?: {
+        getSiteConfiguration(siteId: string): unknown;
         startAndCreateBridgeUrl(siteId: string, targetUrl: string): Promise<string>;
         stop(): Promise<void>;
     };
