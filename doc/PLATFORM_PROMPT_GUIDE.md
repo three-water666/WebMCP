@@ -4,7 +4,8 @@
 
 ## 为什么需要平台差异化提示词
 
-webcode 的公共初始化提示词已经说明了本地 VS Code 工具、工具调用格式、Available Tools 和 Available Skills。
+webcode 的公共初始化提示词负责说明本地 VS Code 工具、Available Tools 和 Available Skills。
+JSON/XML 工具格式是独立资源，运行时只会根据站点 `toolProtocol` 拼接其中一种。
 
 但不同 AI 网站会暴露不同的平台内置能力。例如 ChatGPT 可能会显示平台自带的 Python、canvas、`python_user_visible` 等可见工具。这些工具运行在 ChatGPT 平台环境里，不是用户本地 VS Code 工作区。模型如果在 webcode 任务中误用它们，可能会出现：
 
@@ -25,10 +26,12 @@ webcode 的公共初始化提示词已经说明了本地 VS Code 工具、工具
 3. 浏览器 bridge 握手时，把 `siteId` 写入当前 tab 的 `session_<tabId>`。
 4. background 异步请求 `/v1/init`，把 prompts 和 `syncedAiSites` 写入 `chrome.storage.local`。
 5. ChatGPT 页面 content script 通过 `GET_STATUS` 拿到 `siteId: 'chatgpt'`。
-6. content script 用 `siteId` 读取平台 prompt：
+6. content script 用 `siteId` 读取平台 prompt，并根据 `toolProtocol` 读取一种协议 prompt：
    - 中文：`platform_prompt_chatgpt_zh`
    - 英文：`platform_prompt_chatgpt_en`
-7. 如果 storage 中存在对应 key，就把平台 prompt 拼接到公共 prompt 后面；如果不存在，就跳过。
+   - JSON：`protocol_json_zh` / `protocol_json_en`
+   - XML：`protocol_xml_zh` / `protocol_xml_en`
+7. 最终按“公共 prompt、选中的协议 prompt、平台 prompt”拼接；不会把两种协议同时暴露给模型。
 
 ## 浏览器端下发字段
 
@@ -38,6 +41,7 @@ webcode 的公共初始化提示词已经说明了本地 VS Code 工具、工具
 {
   id: string;
   name: string;
+  toolProtocol: 'json' | 'xml';
   selectors: SiteSelectors;
 }
 ```
@@ -66,6 +70,7 @@ webcode 的公共初始化提示词已经说明了本地 VS Code 工具、工具
 - `address`
 - `showQuickLaunch`
 - `browser`
+- `toolProtocol`
 - `selectors`
 
 平台 prompt 的关联键就是站点 `id`。
@@ -109,6 +114,7 @@ platform_prompt_chatgpt_zh
 {
   id,
   name,
+  toolProtocol,
   selectors
 }
 ```
@@ -124,6 +130,7 @@ platform_prompt_chatgpt_zh
 这里负责：
 
 - 读取公共 prompt 资源。
+- 读取 JSON 和 XML 协议 prompt 资源。
 - 根据 `siteId + 语言` 生成平台 prompt storage key。
 - 从 `chrome.storage.local` 读取平台 prompt。
 
@@ -132,11 +139,13 @@ platform_prompt_chatgpt_zh
 这里负责构建最终初始化提示词：
 
 1. 公共 prompt。
-2. 当前站点 prompt。
-3. 项目规则。
-4. 项目上下文。
-5. Available Tools。
-6. Available Skills。
+2. `toolProtocol` 选中的 JSON 或 XML 协议 prompt。
+3. 当前站点 prompt。
+4. 项目规则。
+5. 项目上下文。
+6. Available Tools，固定使用 JSON Schema 作为只读工具定义目录。
+7. Available Skills，固定使用 JSON 作为名称、说明和路径目录。
+8. 当前协议的短提醒，放在上下文末尾再次强调工具调用必须使用对应的围栏代码块。
 
 ## prompt 存储位置
 
@@ -150,12 +159,17 @@ Gateway `/v1/init` 返回的数据形如：
     {
       "id": "chatgpt",
       "name": "ChatGPT",
+      "toolProtocol": "json",
       "selectors": {}
     }
   ],
   "prompts": {
     "prompt_zh": "...",
     "prompt_en": "...",
+    "protocol_json_zh": "...",
+    "protocol_json_en": "...",
+    "protocol_xml_zh": "...",
+    "protocol_xml_en": "...",
     "platform_prompt_chatgpt_zh": "...",
     "platform_prompt_chatgpt_en": "..."
   }
@@ -171,6 +185,7 @@ Gateway `/v1/init` 返回的数据形如：
 行为是：
 
 - 继续拼接公共 `prompt_zh` 或 `prompt_en`。
+- 继续按 `toolProtocol` 拼接唯一一种协议 prompt。
 - 继续拼接项目规则、项目上下文、Available Tools 和 Available Skills。
 - 不追加站点专属提示词。
 

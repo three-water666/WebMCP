@@ -6,6 +6,8 @@ interface I18nState {
     error: string | null;
     init: string | null;
     oversize: string | null;
+    protocolJson: string | null;
+    protocolXml: string | null;
   };
 }
 
@@ -17,6 +19,8 @@ export const i18n: I18nState = {
     error: null,
     init: null,
     oversize: null,
+    protocolJson: null,
+    protocolXml: null,
   },
 };
 

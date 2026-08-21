@@ -1,6 +1,7 @@
-import { BRANDING, joinPromptSections, PROTOCOL } from "@webcode/shared";
+import { BRANDING, joinPromptSections, PROTOCOL, type ToolProtocolFormat } from "@webcode/shared";
 import { i18n } from "../modules/i18n";
 import { Logger } from "../modules/logger";
+import { buildFinalToolCallContract } from "../modules/toolProtocolFormatting";
 import { readPlatformPromptFromStorage } from "./prompt_resources";
 
 interface ToolExecutionResponse {
@@ -12,13 +13,14 @@ interface ToolExecutionResponse {
 interface WebcodeInitPromptOptions {
   includeInitToolResultHeader?: boolean;
   siteId?: string | null;
+  toolProtocol?: ToolProtocolFormat;
 }
 
 export async function buildWebcodeInitPrompt(options: WebcodeInitPromptOptions = {}): Promise<string> {
   let finalPrompt = options.includeInitToolResultHeader === false
     ? ""
     : buildInitToolResultHeader();
-  finalPrompt += await buildBasePrompt(options.siteId);
+  finalPrompt += await buildBasePrompt(options.siteId, options.toolProtocol ?? "json");
 
   Logger.log(`Initializing ${BRANDING.productName} with prompt, project rules, project context, tool list, and skill list`, "action");
 
@@ -46,8 +48,10 @@ export async function buildWebcodeInitPrompt(options: WebcodeInitPromptOptions =
       executeInitToolCall("list_skills"),
     ]);
 
-    finalPrompt += `\n\n# ${BRANDING.productName} Available Tools\n\`\`\`json\n${escapeInlineNewlines(toolsResult)}\n\`\`\``;
-    finalPrompt += `\n\n# ${BRANDING.productName} Available Skills\n\`\`\`json\n${escapeInlineNewlines(skillsResult)}\n\`\`\``;
+    const toolProtocol = options.toolProtocol ?? "json";
+    finalPrompt += buildJsonResourceSection(`${BRANDING.productName} Available Tools`, toolsResult);
+    finalPrompt += buildJsonResourceSection(`${BRANDING.productName} Available Skills`, skillsResult);
+    finalPrompt += `\n\n${buildFinalToolCallContract(toolProtocol, i18n.lang)}`;
   } catch (error) {
     Logger.log(`Initialization data fetch failed: ${getErrorMessage(error)}`, "error");
     finalPrompt += `\n\n# Initialization Note\nFailed to fetch the tool or skill list. Re-run \`${PROTOCOL.initToolName}\` if needed.`;
@@ -56,10 +60,16 @@ export async function buildWebcodeInitPrompt(options: WebcodeInitPromptOptions =
   return finalPrompt;
 }
 
-async function buildBasePrompt(siteId?: string | null): Promise<string> {
+async function buildBasePrompt(
+  siteId: string | null | undefined,
+  toolProtocol: ToolProtocolFormat
+): Promise<string> {
   const platformPrompt = await readPlatformPromptFromStorage(siteId);
+  const protocolPrompt = toolProtocol === "xml"
+    ? i18n.resources.protocolXml
+    : i18n.resources.protocolJson;
 
-  return joinPromptSections(i18n.resources.prompt, platformPrompt);
+  return joinPromptSections(i18n.resources.prompt, protocolPrompt, platformPrompt);
 }
 
 function buildInitToolResultHeader(): string {
@@ -93,8 +103,8 @@ function executeInitToolCall(name: string): Promise<string> {
   });
 }
 
-function escapeInlineNewlines(value: string): string {
-  return value.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+function buildJsonResourceSection(title: string, serializedJson: string): string {
+  return `\n\n# ${title} (Definitions Only)\n\`\`\`json\n${serializedJson.trim() || "[]"}\n\`\`\``;
 }
 
 function formatToolOutput(data: unknown, fallback: string): string {

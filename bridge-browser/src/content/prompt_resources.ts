@@ -9,6 +9,8 @@ export const promptStorageKeys = {
   error: lang === "zh" ? "error_hint_zh" : "error_hint_en",
   init: lang === "zh" ? "init_zh" : "init_en",
   oversize: lang === "zh" ? "oversize_zh" : "oversize_en",
+  protocolJson: lang === "zh" ? "protocol_json_zh" : "protocol_json_en",
+  protocolXml: lang === "zh" ? "protocol_xml_zh" : "protocol_xml_en",
 } as const;
 
 const promptStorageKeyList = Object.values(promptStorageKeys);
@@ -21,12 +23,16 @@ export function loadPromptsFromStorage(): Promise<void> {
       const error = readStorageString(items, promptStorageKeys.error);
       const init = readStorageString(items, promptStorageKeys.init);
       const oversize = readStorageString(items, promptStorageKeys.oversize);
+      const protocolJson = readStorageString(items, promptStorageKeys.protocolJson);
+      const protocolXml = readStorageString(items, promptStorageKeys.protocolXml);
 
       if (prompt) { i18n.resources.prompt = prompt; }
       if (train) { i18n.resources.train = train; }
       if (error) { i18n.resources.error = error; }
       if (init) { i18n.resources.init = init; }
       if (oversize) { i18n.resources.oversize = oversize; }
+      if (protocolJson) { i18n.resources.protocolJson = protocolJson; }
+      if (protocolXml) { i18n.resources.protocolXml = protocolXml; }
       resolve();
     });
   });

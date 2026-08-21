@@ -10,6 +10,10 @@ import oversizeEn from '../prompts/oversize_en.md';
 import oversizeZh from '../prompts/oversize_zh.md';
 import chatgptPlatformPromptEn from '../prompts/platforms/chatgpt_en.md';
 import chatgptPlatformPromptZh from '../prompts/platforms/chatgpt_zh.md';
+import jsonProtocolPromptEn from '../prompts/protocols/json_en.md';
+import jsonProtocolPromptZh from '../prompts/protocols/json_zh.md';
+import xmlProtocolPromptEn from '../prompts/protocols/xml_en.md';
+import xmlProtocolPromptZh from '../prompts/protocols/xml_zh.md';
 import { BRANDING, PLATFORM_PROMPT_KEY_PREFIX, PROTOCOL } from '@webcode/shared';
 
 function applyBranding(content: string): string {
@@ -36,5 +40,9 @@ export const PROMPTS = {
   init_zh: applyBranding(initZh),
   oversize_en: applyBranding(oversizeEn),
   oversize_zh: applyBranding(oversizeZh),
+  protocol_json_en: applyBranding(jsonProtocolPromptEn),
+  protocol_json_zh: applyBranding(jsonProtocolPromptZh),
+  protocol_xml_en: applyBranding(xmlProtocolPromptEn),
+  protocol_xml_zh: applyBranding(xmlProtocolPromptZh),
   ...PLATFORM_PROMPTS
 };

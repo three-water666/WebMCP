@@ -1,5 +1,6 @@
-import { type McpResponse } from "@webcode/shared";
+import { type McpResponse, type ToolProtocolFormat } from "@webcode/shared";
 import { i18n } from "../modules/i18n";
+import { buildToolCallReminder, formatToolResultCodeBlock } from "../modules/toolProtocolFormatting";
 
 /**
  * 当前页面扫描轮次中，仍需要等待或回填的一组 requestKey。
@@ -67,6 +68,10 @@ interface DuplicateResultContext {
  * Set/Map，也能避免重复执行工具或重复写回结果。
  */
 export class ToolRequestRegistry {
+  public constructor(private readonly options: {
+    getToolProtocol: () => ToolProtocolFormat;
+  } = { getToolProtocol: () => "json" }) {}
+
   /**
    * 所有已经进入执行路径的 requestKey。
    *
@@ -180,7 +185,9 @@ export class ToolRequestRegistry {
     this.toolCallCount++;
     let systemNote: string | undefined;
     if (this.toolCallCount > 0 && this.toolCallCount % 5 === 0) {
-      systemNote = i18n.resources.train ?? getDefaultToolCallReminder();
+      systemNote = this.options.getToolProtocol() === "json" && i18n.resources.train
+        ? i18n.resources.train
+        : buildToolCallReminder(this.options.getToolProtocol(), i18n.lang);
     }
 
     this.bufferedResults.set(requestKey, {
@@ -335,7 +342,7 @@ export class ToolRequestRegistry {
       responseJson.system_note = bufferedResult.systemNote;
     }
 
-    return formatJsonCodeBlock(responseJson);
+    return formatToolResultCodeBlock(responseJson, this.options.getToolProtocol());
   }
 }
 
@@ -385,17 +392,6 @@ export class ToolRequestTurn {
   }
 }
 
-/**
- * 把 MCP result 对象格式化成可以写回 AI 输入框的 JSON 代码块。
- */
-function formatJsonCodeBlock(responseJson: McpResponse): string {
-  return `\`\`\`json\n${JSON.stringify(
-    responseJson,
-    null,
-    2
-  )}\n\`\`\``;
-}
-
 function addDuplicateRequestContext(
   content: string,
   bufferedResult: Extract<BufferedResult, { kind: "tool" }>,
@@ -408,11 +404,4 @@ function addDuplicateRequestContext(
   ].join(" ");
 
   return content ? `${prefix}\n\n${content}` : prefix;
-}
-
-/**
- * 当本地提示词资源还没加载到训练提示时，使用这个兜底协议提醒。
- */
-function getDefaultToolCallReminder(): string {
-  return "[System] Reminder: Tool calls MUST use this JSON format: {\"mcp_action\":\"call\", \"name\": \"tool_name\", \"purpose\": \"reason\", \"arguments\": {...}, \"request_id\": \"turn_unique_step_x\"}. request_id must be new for every tool call in this conversation.";
 }

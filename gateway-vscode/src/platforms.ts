@@ -1,9 +1,12 @@
+import { normalizeToolProtocolFormat, type ToolProtocolFormat } from '@webcode/shared';
+
 export interface AISiteConfig {
     id?: string;
     name?: string;
     address?: string;
     showQuickLaunch?: boolean;
     browser?: string;
+    toolProtocol?: ToolProtocolFormat;
     selectors?: Partial<SiteSelectors>;
 }
 
@@ -13,6 +16,7 @@ export interface ResolvedAiSiteConfig {
     address: string;
     showQuickLaunch?: boolean;
     browser?: string;
+    toolProtocol: ToolProtocolFormat;
     selectors: SiteSelectors;
 }
 
@@ -34,6 +38,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'ChatGPT',
         address: 'https://chatgpt.com',
         showQuickLaunch: true,
+        toolProtocol: 'json',
         selectors: {
             messageBlocks: '.agent-turn',
             codeBlocks: 'pre code',
@@ -48,6 +53,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'Gemini',
         address: 'https://gemini.google.com',
         showQuickLaunch: true,
+        toolProtocol: 'json',
         selectors: {
             messageBlocks: '.markdown',
             codeBlocks: 'pre code',
@@ -61,6 +67,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'aistudio',
         address: 'https://aistudio.google.com/',
         showQuickLaunch: true,
+        toolProtocol: 'json',
         selectors: {
             messageBlocks: "div[data-turn-role='Model']",
             codeBlocks: 'pre code',
@@ -74,6 +81,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'DeepSeek',
         address: 'https://chat.deepseek.com',
         showQuickLaunch: true,
+        toolProtocol: 'xml',
         selectors: {
             messageBlocks: '.ds-message',
             codeBlocks: '.ds-markdown.ds-assistant-message-main-content pre',
@@ -88,6 +96,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'GLM',
         address: 'https://chatglm.cn/',
         showQuickLaunch: true,
+        toolProtocol: 'json',
         selectors: {
             messageBlocks: '.code-box.flex1 > .answer-content-wrap',
             codeBlocks: 'pre code',
@@ -102,6 +111,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'Claude',
         address: 'https://claude.ai/',
         showQuickLaunch: true,
+        toolProtocol: 'json',
         selectors: {
             messageBlocks: '.font-claude-response',
             codeBlocks: 'pre code',
@@ -115,6 +125,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'Qwen',
         address: 'https://chat.qwen.ai/',
         showQuickLaunch: true,
+        toolProtocol: 'json',
         selectors: {
             messageBlocks: '.qwen-chat-message-dual-message .smulti-o-response-message-wrapper > .response-message-box:first-child .chat-response-message-right, .qwen-chat-message-assistant:not(.qwen-chat-message-dual-message) .chat-response-message-right',
             codeBlocks: '.qwen-markdown-code-body',
@@ -218,6 +229,7 @@ function mergeAiSiteConfig(base: ResolvedAiSiteConfig, override: AISiteConfig): 
         address: readConfiguredString(override.address) ?? base.address,
         showQuickLaunch: override.showQuickLaunch ?? base.showQuickLaunch,
         browser: override.browser ?? base.browser,
+        toolProtocol: normalizeToolProtocolFormat(override.toolProtocol ?? base.toolProtocol),
         selectors: {
             ...base.selectors,
             ...(override.selectors ?? {})
@@ -240,6 +252,7 @@ function resolveCustomAiSite(site: AISiteConfig): ResolvedAiSiteConfig | null {
         address,
         showQuickLaunch: site.showQuickLaunch,
         browser: site.browser,
+        toolProtocol: normalizeToolProtocolFormat(site.toolProtocol),
         selectors: { ...site.selectors }
     };
 }

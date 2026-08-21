@@ -89,6 +89,15 @@
                 "default": "default",
                 "description": "Specific browser for this site (overrides global setting). Use user-profile-chrome or user-profile-edge to launch the normal profile and try to apply anti-freeze flags. Use isolated-chrome or isolated-edge to launch a dedicated profile with the bridge extension and anti-freeze flags."
               },
+              "toolProtocol": {
+                "type": "string",
+                "enum": [
+                  "json",
+                  "xml"
+                ],
+                "default": "json",
+                "description": "Preferred tool-call and result format for this site. The built-in DeepSeek site defaults to XML; other built-in sites default to JSON."
+              },
               "selectors": {
                 "type": "object",
                 "description": "DOM selectors for this AI site. Leave empty to use defaults for known sites.",

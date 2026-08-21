@@ -140,10 +140,14 @@ export async function submitLiveTask(
     const addButton = page.getByRole('button', { name: /^(添加|Add)$/ }).last();
     await addButton.waitFor({ state: 'visible', timeout: 30_000 });
     await addButton.click();
-    await waitForInitializationReplacement(page, selectors.inputArea, promptedTask.length);
-    appendBrowserTrace(trace, 'webcode_context_inserted', 'success');
+    const initializationState = await waitForInitializationReplacement(
+        page, selectors, promptedTask.length, initialMessageCount
+    );
+    appendBrowserTrace(trace, 'webcode_context_inserted', 'success', { initializationState });
 
-    await sendCurrentInput(page, input, selectors, trace);
+    if (initializationState === 'ready') {
+        await sendCurrentInput(page, input, selectors, trace);
+    }
     await waitForConversationStart(page, selectors, initialMessageCount);
     appendBrowserTrace(trace, 'deepseek_task_sent', 'success');
     return initialMessageCount;
@@ -259,18 +263,35 @@ function describeError(error: unknown): string | undefined {
 
 async function waitForInitializationReplacement(
     page: Page,
-    inputSelector: string,
-    originalLength: number
-): Promise<void> {
-    await page.waitForFunction(
-        ({ selector, minimumLength }) => {
-            const candidates = Array.from(document.querySelectorAll<HTMLTextAreaElement>(selector));
+    selectors: LiveSiteSelectors,
+    originalLength: number,
+    initialMessageCount: number
+): Promise<'ready' | 'sent'> {
+    const stateHandle = await page.waitForFunction(
+        ({ inputSelector, messageSelector, minimumLength, previousCount }) => {
+            const candidates = Array.from(document.querySelectorAll<HTMLTextAreaElement>(inputSelector));
             const element = candidates.find(candidate => candidate.offsetParent !== null) ?? candidates.at(-1);
-            return Boolean(element && element.value.length > minimumLength + 500 && element.value.includes('mcp_action'));
+            const value = element?.value ?? '';
+            const hasContextMarker = value.includes('mcp_action') || value.includes('<available_tools>')
+                || value.includes('Available Tools (Definitions Only)');
+            if (value.length > minimumLength + 500 && hasContextMarker) {
+                return 'ready';
+            }
+            if (document.querySelectorAll(messageSelector).length > previousCount && value.length === 0) {
+                return 'sent';
+            }
+            return false;
         },
-        { selector: inputSelector, minimumLength: originalLength },
+        {
+            inputSelector: selectors.inputArea,
+            messageSelector: selectors.messageBlocks,
+            minimumLength: originalLength,
+            previousCount: initialMessageCount,
+        },
         { timeout: 45_000 }
     );
+    const state = await stateHandle.jsonValue();
+    return state === 'sent' ? 'sent' : 'ready';
 }
 
 async function sendCurrentInput(

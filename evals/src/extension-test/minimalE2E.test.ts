@@ -22,6 +22,7 @@ interface EvaluationExtensionApi {
 }
 
 const EXTENSION_ID = 'three-water666.gateway-vscode';
+const TOOL_PROTOCOLS = ['json', 'xml'] as const;
 
 suite('Deterministic minimal E2E', () => {
     let browserContext: BrowserContext | undefined;
@@ -34,7 +35,8 @@ suite('Deterministic minimal E2E', () => {
         await fixtureSite?.close();
     });
 
-    test('round-trips read and write tool calls through the real browser bridge and Gateway', async () => {
+    for (const toolProtocol of TOOL_PROTOCOLS) {
+        test(`round-trips ${toolProtocol.toUpperCase()} tool calls through the browser bridge and Gateway`, async () => {
         const runDirectory = requireEnvironmentPath('WEBCODE_EVAL_RUN_DIR');
         const tracePath = requireEnvironmentPath('WEBCODE_EVAL_TRACE_PATH');
         const scenarioPath = requireEnvironmentPath('WEBCODE_EVAL_SCENARIO_PATH');
@@ -45,10 +47,10 @@ suite('Deterministic minimal E2E', () => {
         const runId = path.basename(runDirectory);
         const scenario = await loadScenario(scenarioPath);
         assert.strictEqual(scenario.kind, 'contract-e2e', 'The minimal E2E requires a contract scenario.');
-        fixtureSite = new DeterministicFixtureSite(scenario, runId, tracePath);
+        fixtureSite = new DeterministicFixtureSite(scenario, runId, tracePath, toolProtocol);
         const fixtureUrl = await fixtureSite.start();
 
-        await configureEvaluationSite(fixtureUrl);
+        await configureEvaluationSite(fixtureUrl, toolProtocol);
         const extension = vscode.extensions.getExtension<EvaluationExtensionApi>(EXTENSION_ID);
         assert.ok(extension, `Extension ${EXTENSION_ID} should be installed in the Extension Host.`);
         extensionApi = await extension.activate();
@@ -96,7 +98,10 @@ suite('Deterministic minimal E2E', () => {
             state: 'attached',
             timeout: scenario.timeoutMs,
         });
-        await page.screenshot({ path: path.join(runDirectory, 'minimal-e2e.png'), fullPage: true });
+        await page.screenshot({
+            path: path.join(runDirectory, `minimal-e2e-${toolProtocol}.png`),
+            fullPage: true
+        });
 
         assert.strictEqual(
             await fs.readFile(path.join(workspacePath, scenario.expected.writtenPath), 'utf8'),
@@ -123,11 +128,16 @@ suite('Deterministic minimal E2E', () => {
             source: 'browser',
             event: 'minimal_e2e_assertions_passed',
             status: 'success',
+            details: { toolProtocol }
         });
-    });
+        });
+    }
 });
 
-async function configureEvaluationSite(fixtureUrl: string): Promise<void> {
+async function configureEvaluationSite(
+    fixtureUrl: string,
+    toolProtocol: typeof TOOL_PROTOCOLS[number]
+): Promise<void> {
     const config = vscode.workspace.getConfiguration('webcodeGateway');
     await config.update('port', 34567, vscode.ConfigurationTarget.Global);
     await config.update('servers', {}, vscode.ConfigurationTarget.Global);
@@ -136,6 +146,7 @@ async function configureEvaluationSite(fixtureUrl: string): Promise<void> {
         name: 'webcode deterministic eval',
         address: fixtureUrl,
         showQuickLaunch: false,
+        toolProtocol,
         selectors: {
             messageBlocks: '.assistant-message',
             codeBlocks: 'pre code',

@@ -3,7 +3,7 @@ import { Logger } from "../modules/logger";
 import * as UI from "../modules/ui";
 import { type SiteSelectors } from "../modules/config";
 import { looksLikeToolCall, parseToolCall } from "../modules/toolCallProtocol";
-import { BRANDING, PROTOCOL } from "@webcode/shared";
+import { BRANDING, PROTOCOL, type ToolProtocolFormat } from "@webcode/shared";
 import { getSyncedAiSites, isMessageRequest, isSiteSelectors, isStatusResponse, type MessageRequest, type StatusResponse, type SyncedAiSite } from "../types";
 import { AutoInitPromptController } from "./auto_init_prompt";
 import { createApprovalState, parseStoredApprovalEntries, type ApprovalState } from "./approval_policy";
@@ -58,8 +58,8 @@ type RuntimeSendResponse = (response?: unknown) => void;
 
 // === DOM 选择器与配置 ===
 let DOM: SiteSelectors | null = null;
-let currentSiteName: string | null = null;
-let currentSiteId: string | null = null;
+let currentSiteName: string | null = null, currentSiteId: string | null = null;
+let currentToolProtocol: ToolProtocolFormat = "json";
 
 // 监听消息 (日志开关 & 状态同步)
 chrome.runtime.onMessage.addListener((request: unknown, _sender, sendResponse): boolean | void => (
@@ -154,13 +154,12 @@ async function handleManualInitRequest(sendResponse: RuntimeSendResponse): Promi
 const autoInitPrompt = new AutoInitPromptController({
   getSelectors: () => DOM,
   getSiteId: () => currentSiteId,
+  getToolProtocol: () => currentToolProtocol,
   isClientConnected: () => isClientConnected,
   loadPromptsFromStorage,
 });
 
-function initDOMConfig(): void {
-  void loadDOMConfig();
-}
+function initDOMConfig(): void {void loadDOMConfig();}
 
 async function loadDOMConfig(): Promise<void> {
   const status = await getCurrentStatus();
@@ -190,6 +189,7 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
   if (matchedSite && isSiteSelectors(matchedSite.selectors)) {
     DOM = matchedSite.selectors;
     currentSiteName = matchedSite.name ?? matchedSite.id;
+    currentToolProtocol = matchedSite.toolProtocol;
     completionNotifier.reset();
     autoInitPrompt.setupTrigger();
     void loadPromptsFromStorage();
@@ -207,6 +207,7 @@ function resetCurrentSite(): void {
   DOM = null;
   currentSiteName = null;
   currentSiteId = null;
+  currentToolProtocol = "json";
 }
 
 function getCurrentStatus(): Promise<StatusResponse | null> {
@@ -245,7 +246,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 // === 主循环逻辑 ===
 
 // 统一管理工具调用内部 requestKey 的生命周期：已发现、执行中、结果缓存、已回填，以及当前轮次去重。
-const requestRegistry = new ToolRequestRegistry();
+const requestRegistry = new ToolRequestRegistry({ getToolProtocol: () => currentToolProtocol });
 let lastProgressLogTime = 0;
 let lastProgressStatus = "";
 
@@ -255,6 +256,7 @@ let lastProgressStatus = "";
 let isCheckScheduled = false;
 
 const toolCallTracker = new ToolCallTracker({
+  getToolProtocol: () => currentToolProtocol,
   requestRegistry,
   scheduleMainLoop,
 });
@@ -262,6 +264,7 @@ const toolCallTracker = new ToolCallTracker({
 const toolExecutor = new ToolExecutor({
   getSelectors: () => DOM,
   getSiteId: () => currentSiteId,
+  getToolProtocol: () => currentToolProtocol,
   getWorkspaceId: () => currentWorkspaceId,
   getApprovalState: () => approvalState,
   getAutoApproveTools: () => CONFIG.autoApproveTools,
@@ -323,11 +326,11 @@ function runMainLoop() {
   for (const [codeBlockIndex, codeEl] of codeElements.entries()) {
     const codeElement = codeEl as HTMLElement;
     const textContent = (codeElement.textContent ?? "").trim();
-    if (!looksLikeToolCall(textContent)) { continue; }
+    if (!looksLikeToolCall(textContent, currentToolProtocol)) { continue; }
 
     try {
       // parseToolCall 会做协议校验；解析失败的代码块会走 catch 中的稳定性和错误反馈流程。
-      const payload = parseToolCall(textContent);
+      const payload = parseToolCall(textContent, currentToolProtocol);
 
       // 同一个代码块可能先是不完整 JSON，后续流式输出补全；成功解析后清掉旧错误样式。
       if (codeElement.dataset.mcpState === "error") {

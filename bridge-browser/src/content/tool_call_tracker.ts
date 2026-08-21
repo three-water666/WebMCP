@@ -1,8 +1,9 @@
-import { BRANDING, PROTOCOL } from "@webcode/shared";
+import { BRANDING, type ToolProtocolFormat } from "@webcode/shared";
 import { i18n } from "../modules/i18n";
 import { Logger } from "../modules/logger";
 import * as UI from "../modules/ui";
 import { ToolCallProtocolError, type ParsedToolCallPayload } from "../modules/toolCallProtocol";
+import { buildProtocolErrorHint } from "../modules/toolProtocolFormatting";
 import { showUserAttentionNotification } from "../modules/user_attention";
 import type { ToolExecutionPayload } from "../types";
 import { type ToolRequestIdentity, type ToolRequestRegistry } from "./tool_request_registry";
@@ -14,6 +15,7 @@ interface BlockState {
 }
 
 interface ToolCallTrackerOptions {
+  getToolProtocol: () => ToolProtocolFormat;
   requestRegistry: ToolRequestRegistry;
   scheduleMainLoop: (delayMs: number) => void;
 }
@@ -109,7 +111,7 @@ export class ToolCallTracker {
   }
 
   private notifyProtocolError(codeEl: HTMLElement, identity: ToolRequestIdentity, error: unknown): void {
-    const message = buildProtocolErrorMessage(error);
+    const message = buildProtocolErrorMessage(error, this.options.getToolProtocol());
     Logger.log(`Tool call protocol error: ${message}`, "error");
     UI.markVisualError(codeEl);
     void showUserAttentionNotification({
@@ -263,50 +265,30 @@ function getProtocolErrorIdentity(
 }
 
 function extractRequestIdCandidate(textContent: string): string | null {
-  const match = /["']request_id["']\s*:\s*["']([^"']+)["']/.exec(textContent);
-  return normalizeRequestId(match?.[1]);
+  const jsonMatch = /["']request_id["']\s*:\s*["']([^"']+)["']/.exec(textContent);
+  if (jsonMatch) {return normalizeRequestId(jsonMatch[1]);}
+  const xmlElementMatch = /<request_id(?:\s[^>]*)?>([\s\S]*?)<\/request_id\s*>/i.exec(textContent);
+  if (xmlElementMatch) {return normalizeRequestId(xmlElementMatch[1]);}
+  const xmlAttributeMatch = /\brequest_id\s*=\s*(["'])(.*?)\1/i.exec(textContent);
+  return normalizeRequestId(xmlAttributeMatch?.[2]);
 }
 
 function getRequestScope(messageIndex: number, codeBlockIndex: number): string {
   return `${messageIndex}:${codeBlockIndex}`;
 }
 
-function buildProtocolErrorMessage(error: unknown): string {
+function buildProtocolErrorMessage(error: unknown, toolProtocol: ToolProtocolFormat): string {
   const issues = error instanceof ToolCallProtocolError
     ? error.issues
     : [error instanceof Error ? error.message : String(error)];
   const intro = i18n.lang === "zh"
     ? "工具调用已被 webcode 拒绝，未请求 VS Code，也未执行任何工具。"
     : "The tool call was rejected by webcode before contacting VS Code. No tool was executed.";
+  const formatName = toolProtocol === "xml" ? "XML" : "JSON";
   const nextStep = i18n.lang === "zh"
-    ? "请重新输出一个新的 JSON 工具调用代码块。顶层只能包含 mcp_action、name、purpose、arguments、request_id；name 和 purpose 必填。request_id 必须是本会话中每次工具调用的新值。当前工具有入参时，arguments 必须严格匹配该工具的 inputSchema。"
-    : "Regenerate a new JSON tool-call code block. Top-level fields may only be mcp_action, name, purpose, arguments, and request_id; name and purpose are required. request_id must be new for every tool call in this conversation. When the selected tool has inputs, arguments must exactly match that tool's inputSchema.";
+    ? `请按当前 ${formatName} 协议重新输出一个新的工具调用代码块。name 和 purpose 必填，request_id 必须为本会话新值，arguments 必须严格匹配工具的 inputSchema。`
+    : `Regenerate one tool-call code block using the active ${formatName} protocol. name and purpose are required, request_id must be new, and arguments must match the tool inputSchema.`;
   const issueList = issues.map((issue) => `- ${issue}`).join("\n");
-  const formatHint = getDefaultProtocolErrorHint();
+  const formatHint = buildProtocolErrorHint(toolProtocol, i18n.lang);
   return `${intro}\n\nProblems:\n${issueList}\n\n${nextStep}\n\n${formatHint}`;
-}
-
-function getDefaultProtocolErrorHint(): string {
-  return `Standard tool format:
-\`\`\`json
-{
-  "mcp_action": "call",
-  "name": "tool_name",
-  "purpose": "Brief justification for this action",
-  "arguments": {
-    "key": "value"
-  },
-  "request_id": "turn_unique_step_1"
-}
-\`\`\`
-
-Initialization tool format:
-\`\`\`json
-{
-  "mcp_action": "call",
-  "name": "${PROTOCOL.initToolName}",
-  "purpose": "Initialize webcode for this conversation",
-  "request_id": "init_unique_1"
-}
-\`\`\``;
 }

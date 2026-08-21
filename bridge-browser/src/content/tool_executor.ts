@@ -1,4 +1,4 @@
-import { BRANDING, isBootstrapOnlyToolName, PROTOCOL } from "@webcode/shared";
+import { BRANDING, isBootstrapOnlyToolName, PROTOCOL, type ToolProtocolFormat } from "@webcode/shared";
 import type { SiteSelectors } from "../modules/config";
 import * as UI from "../modules/ui";
 import { i18n, t } from "../modules/i18n";
@@ -17,6 +17,7 @@ import { type ToolRequestIdentity, type ToolRequestRegistry } from "./tool_reque
 interface ToolExecutorOptions {
   getSelectors: () => SiteSelectors | null;
   getSiteId: () => string | null;
+  getToolProtocol: () => ToolProtocolFormat;
   getWorkspaceId: () => string;
   getApprovalState: () => ApprovalState;
   getAutoApproveTools: () => boolean;
@@ -201,6 +202,7 @@ export class ToolExecutor {
   private async initializeWebcode(request: ToolExecutionRequest): Promise<void> {
     const finalPrompt = await buildWebcodeInitPrompt({
       siteId: this.options.getSiteId(),
+      toolProtocol: this.options.getToolProtocol(),
     });
 
     this.options.requestRegistry.saveRawResult(request.identity.requestKey, finalPrompt);

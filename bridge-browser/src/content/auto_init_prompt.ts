@@ -1,9 +1,10 @@
-import { BRANDING } from "@webcode/shared";
+import { BRANDING, type ToolProtocolFormat } from "@webcode/shared";
 import type { SiteSelectors } from "../modules/config";
 import { i18n } from "../modules/i18n";
 import { Logger } from "../modules/logger";
 import { getMessageBlockElements } from "../modules/page_selectors";
 import { pasteTextAsAttachment } from "../modules/result_delivery";
+import { buildInitToolCallPrompt } from "../modules/toolProtocolFormatting";
 import * as UI from "../modules/ui";
 import {
   type AutoInitPromptMode,
@@ -18,6 +19,7 @@ import { buildWebcodeInitPrompt } from "./init_context";
 interface AutoInitPromptControllerOptions {
   getSelectors: () => SiteSelectors | null;
   getSiteId: () => string | null;
+  getToolProtocol: () => ToolProtocolFormat;
   isClientConnected: () => boolean;
   loadPromptsFromStorage: () => Promise<void>;
 }
@@ -239,6 +241,9 @@ export class AutoInitPromptController {
   }
 
   private getLoadedInitPrompt(): string | null {
+    if (this.options.getToolProtocol() === "xml") {
+      return buildInitToolCallPrompt("xml", i18n.lang);
+    }
     return i18n.resources.init ?? null;
   }
 
@@ -262,6 +267,7 @@ export class AutoInitPromptController {
       return await buildWebcodeInitPrompt({
         includeInitToolResultHeader: false,
         siteId: this.options.getSiteId(),
+        toolProtocol: this.options.getToolProtocol(),
       });
     } catch (error) {
       Logger.log(`Direct initialization prompt build failed: ${getErrorMessage(error)}`, "error");

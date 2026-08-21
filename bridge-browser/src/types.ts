@@ -1,4 +1,9 @@
-import { type Session, type ToolExecutionPayload } from '@webcode/shared';
+import {
+  normalizeToolProtocolFormat,
+  type Session,
+  type ToolExecutionPayload,
+  type ToolProtocolFormat,
+} from '@webcode/shared';
 import { type SiteSelectors } from './modules/config';
 
 // Re-export shared types for convenience
@@ -58,6 +63,7 @@ export interface SuccessResponse {
 export interface SyncedAiSite {
   id: string;
   name?: string;
+  toolProtocol: ToolProtocolFormat;
   selectors?: unknown;
 }
 
@@ -166,11 +172,21 @@ export function isSyncedAiSite(value: unknown): value is SyncedAiSite {
     (
       value.name === undefined ||
       typeof value.name === "string"
+    ) &&
+    (
+      value.toolProtocol === undefined ||
+      value.toolProtocol === "json" ||
+      value.toolProtocol === "xml"
     );
 }
 
 export function getSyncedAiSites(value: unknown): SyncedAiSite[] {
-  return Array.isArray(value) ? value.filter(isSyncedAiSite) : [];
+  return Array.isArray(value)
+    ? value.filter(isSyncedAiSite).map((site) => ({
+      ...site,
+      toolProtocol: normalizeToolProtocolFormat(site.toolProtocol),
+    }))
+    : [];
 }
 
 function isOptionalBoolean(value: unknown): boolean {

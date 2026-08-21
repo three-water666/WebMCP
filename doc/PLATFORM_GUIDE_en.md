@@ -15,6 +15,7 @@ Resolved VS Code site shape:
   address: string;
   showQuickLaunch?: boolean;
   browser?: string;
+  toolProtocol: 'json' | 'xml';
   selectors: SiteSelectors;
 }
 ```
@@ -25,6 +26,7 @@ Browser `/v1/init` receives `syncedAiSites` in this narrower shape:
 {
   id: string;
   name: string;
+  toolProtocol: 'json' | 'xml';
   selectors: SiteSelectors;
 }
 ```
@@ -46,6 +48,11 @@ Field responsibilities:
 
 - `browser`
   - VS Code launch field only.
+
+- `toolProtocol`
+  - Selects JSON or XML for model instructions and tool-result delivery.
+  - Built-in DeepSeek defaults to `xml`; other built-in sites default to `json`.
+  - Initialization includes only the selected protocol prompt, and the browser only captures that format.
 
 - `selectors`
   - DOM selectors required by the browser content script.
@@ -128,6 +135,7 @@ Override a built-in site:
   "webcodeGateway.aiSites": [
     {
       "id": "deepseek",
+      "toolProtocol": "xml",
       "showQuickLaunch": false,
       "browser": "edge",
       "selectors": {
@@ -149,6 +157,7 @@ Add a custom site:
       "address": "https://example.ai/chat",
       "showQuickLaunch": true,
       "browser": "default",
+      "toolProtocol": "json",
       "selectors": {
         "messageBlocks": ".assistant-message",
         "codeBlocks": "pre code",
@@ -174,7 +183,7 @@ Custom sites do not inherit defaults, so the selector set must be complete.
 6. If the versions match, the handshake stores `siteId`, `targetOrigin`, and `targetUrl` in `session_<tabId>`.
 7. The background script fetches `/v1/init` and writes prompts plus `syncedAiSites` to `chrome.storage.local`.
 8. The target page content script calls `GET_STATUS` to get `siteId`.
-9. The content script uses `siteId` to find selectors in `syncedAiSites`.
+9. The content script uses `siteId` to find selectors and `toolProtocol` in `syncedAiSites`.
 
 This avoids URL guessing in the content script and avoids a race where URL safety depends on `/v1/init` finishing first. It also prevents sessions from being removed just because config has not synced yet; if the current URL is unsafe, page capabilities are paused and resume after the tab returns to a safe URL.
 
@@ -217,8 +226,8 @@ Manual checks:
 1. Launch the site from VS Code.
 2. Confirm the bridge redirects successfully.
 3. Confirm `session_<tabId>` has `siteId`, `targetOrigin`, and `targetUrl`.
-4. Confirm `/v1/init` sends only `id/name/selectors` for `syncedAiSites`.
-5. Verify tool-call capture, result delivery, and auto-send.
+4. Confirm `/v1/init` sends `id/name/toolProtocol/selectors` for `syncedAiSites`.
+5. Verify configured-format calls, rejection of the other format, matching result delivery, and auto-send.
 
 ## Common Pitfalls
 

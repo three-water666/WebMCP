@@ -92,6 +92,7 @@ function createSite(id: string, address: string): ResolvedAiSiteConfig {
         id,
         name: id,
         address,
+        toolProtocol: 'json',
         selectors: {
             messageBlocks: '.message',
             codeBlocks: 'pre code',

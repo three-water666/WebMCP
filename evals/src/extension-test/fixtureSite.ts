@@ -15,7 +15,8 @@ export class DeterministicFixtureSite {
     public constructor(
         private readonly scenario: ContractE2EScenario,
         private readonly runId: string,
-        private readonly tracePath: string
+        private readonly tracePath: string,
+        private readonly toolProtocol: 'json' | 'xml'
     ) {
         this.server = http.createServer((request, response) => {
             void this.handleRequest(request, response);
@@ -58,7 +59,7 @@ export class DeterministicFixtureSite {
                 'Cache-Control': 'no-store',
                 'Content-Type': 'text/html; charset=utf-8',
             });
-            response.end(buildFixturePage(this.scenario));
+            response.end(buildFixturePage(this.scenario, this.toolProtocol));
             return;
         }
 
@@ -91,12 +92,13 @@ export class DeterministicFixtureSite {
 
 // The page is intentionally self-contained so the browser E2E has no asset server or bundler dependency.
 // eslint-disable-next-line max-lines-per-function
-function buildFixturePage(scenario: ContractE2EScenario): string {
+function buildFixturePage(scenario: ContractE2EScenario, toolProtocol: 'json' | 'xml'): string {
     const pageConfig = JSON.stringify({
         readContains: scenario.expected.readContains,
         readPath: scenario.expected.readPath,
         writtenContent: scenario.expected.writtenContent,
         writtenPath: scenario.expected.writtenPath,
+        toolProtocol,
     }).replaceAll('<', '\\u003c');
 
     return `<!doctype html>
@@ -141,18 +143,54 @@ function buildFixturePage(scenario: ContractE2EScenario): string {
       }).catch(() => undefined);
     }
 
+    function escapeXml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;');
+    }
+
+    function renderXmlValue(name, value) {
+      if (Array.isArray(value)) {
+        return '<' + name + '>' + value.map(item => renderXmlValue('item', item)).join('') +
+          '</' + name + '>';
+      }
+      if (value && typeof value === 'object') {
+        return '<' + name + '>' + Object.entries(value)
+          .map(([key, child]) => renderXmlValue(key, child)).join('') + '</' + name + '>';
+      }
+      if (typeof value === 'string') {
+        const cdata = value.replaceAll(']]>', ']]]]><![CDATA[>');
+        return '<' + name + ' type="string"><![CDATA[' + cdata + ']]></' + name + '>';
+      }
+      return '<' + name + '>' + escapeXml(value) + '</' + name + '>';
+    }
+
     function renderToolCall(toolName, purpose, args, requestId) {
       const message = document.createElement('article');
       message.className = 'assistant-message';
       const pre = document.createElement('pre');
       const code = document.createElement('code');
-      code.textContent = JSON.stringify({
-        mcp_action: 'call',
-        name: toolName,
-        purpose,
-        arguments: args,
-        request_id: requestId,
-      }, null, 2);
+      if (config.toolProtocol === 'json') {
+        code.textContent = JSON.stringify({
+          mcp_action: 'call',
+          name: toolName,
+          purpose,
+          arguments: args,
+          request_id: requestId,
+        }, null, 2);
+      } else {
+        code.textContent = [
+          '<tool_call>',
+          '  <name>' + escapeXml(toolName) + '</name>',
+          '  <purpose>' + escapeXml(purpose) + '</purpose>',
+          '  ' + renderXmlValue('arguments', args),
+          '  <request_id>' + escapeXml(requestId) + '</request_id>',
+          '</tool_call>',
+        ].join('\\n');
+      }
       pre.appendChild(code);
       message.appendChild(pre);
       messages.appendChild(message);
@@ -181,12 +219,28 @@ function buildFixturePage(scenario: ContractE2EScenario): string {
     }
 
     function parseToolResult(text) {
+      const xmlBlocks = Array.from(text.matchAll(/\x60\x60\x60xml\\s*([\\s\\S]*?)\x60\x60\x60/g));
+      for (const block of xmlBlocks.reverse()) {
+        const documentNode = new DOMParser().parseFromString(block[1], 'application/xml');
+        const resultNode = documentNode.querySelector('tool_result');
+        if (resultNode && !documentNode.querySelector('parsererror')) {
+          return {
+            mcp_action: 'result',
+            protocol: 'xml',
+            request_id: resultNode.querySelector('request_id')?.textContent ?? '',
+            status: resultNode.querySelector('status')?.textContent ?? '',
+            output: resultNode.querySelector('output')?.textContent ?? '',
+            error: resultNode.querySelector('error')?.textContent ?? '',
+          };
+        }
+      }
+
       const blocks = Array.from(text.matchAll(/\x60\x60\x60json\\s*([\\s\\S]*?)\x60\x60\x60/g));
       for (const block of blocks.reverse()) {
         try {
           const parsed = JSON.parse(block[1]);
           if (parsed && parsed.mcp_action === 'result') {
-            return parsed;
+            return { ...parsed, protocol: 'json' };
           }
         } catch {
           // Continue to the next JSON block.
@@ -210,7 +264,7 @@ function buildFixturePage(scenario: ContractE2EScenario): string {
         details: { contentLength: text.length, stage },
       });
 
-      if (!result || result.status !== 'success') {
+      if (!result || result.status !== 'success' || result.protocol !== config.toolProtocol) {
         document.body.dataset.evalState = 'error';
         status.textContent = 'Invalid or failed tool result.';
         return;
@@ -246,7 +300,9 @@ function buildFixturePage(scenario: ContractE2EScenario): string {
 
     input.addEventListener('input', () => {
       const text = input.value;
-      if (!text.includes('"mcp_action"') || !text.includes('"result"') || text === lastInjectedText) {
+      const hasResult = text.includes('<tool_result>') ||
+        (text.includes('"mcp_action"') && text.includes('"result"'));
+      if (!hasResult || text === lastInjectedText) {
         return;
       }
       lastInjectedText = text;

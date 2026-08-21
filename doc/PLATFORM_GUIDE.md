@@ -15,6 +15,7 @@ VS Code 端完整站点结构：
   address: string;
   showQuickLaunch?: boolean;
   browser?: string;
+  toolProtocol: 'json' | 'xml';
   selectors: SiteSelectors;
 }
 ```
@@ -25,6 +26,7 @@ VS Code 端完整站点结构：
 {
   id: string;
   name: string;
+  toolProtocol: 'json' | 'xml';
   selectors: SiteSelectors;
 }
 ```
@@ -48,6 +50,11 @@ VS Code 端完整站点结构：
 - `browser`
   - 只影响 VS Code 启动该站点时选择哪个浏览器。
   - 浏览器扩展不需要这个字段。
+
+- `toolProtocol`
+  - 决定该站点提示模型使用 JSON 还是 XML 工具调用，并使用同样格式回填结果。
+  - DeepSeek 内置默认值是 `xml`，其他内置站点默认是 `json`。
+  - 每次初始化只拼接选中格式的协议提示，浏览器也只捕获和解析该格式。
 
 - `selectors`
   - 浏览器 content script 操作网页所需的 DOM selectors。
@@ -143,6 +150,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
   "webcodeGateway.aiSites": [
     {
       "id": "deepseek",
+      "toolProtocol": "xml",
       "showQuickLaunch": false,
       "browser": "edge",
       "selectors": {
@@ -166,6 +174,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
       "address": "https://example.ai/chat",
       "showQuickLaunch": true,
       "browser": "default",
+      "toolProtocol": "json",
       "selectors": {
         "messageBlocks": ".assistant-message",
         "codeBlocks": "pre code",
@@ -193,7 +202,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
 6. 版本一致后，bridge 页面握手，把 `siteId`、`targetOrigin`、`targetUrl` 写进 `session_<tabId>`。
 7. background 异步请求 `/v1/init`，把 prompts 和 `syncedAiSites` 写进 `chrome.storage.local`。
 8. 目标 AI 页面里的 content script 通过 `GET_STATUS` 拿到 `siteId`。
-9. content script 用 `siteId` 在 `syncedAiSites` 中查 selectors。
+9. content script 用 `siteId` 在 `syncedAiSites` 中查 selectors 和 `toolProtocol`。
 
 这个设计避免了两个问题：
 
@@ -251,9 +260,9 @@ pnpm lint
 1. 从 VS Code 状态栏打开目标站点。
 2. 确认 bridge 页面握手成功并跳转。
 3. 确认浏览器扩展存储里 `session_<tabId>` 有 `siteId`、`targetOrigin`、`targetUrl`。
-4. 确认 `/v1/init` 下发的 `syncedAiSites` 只有 `id/name/selectors`。
-5. 验证工具调用 JSON 能被捕获。
-6. 验证工具结果能成功回填。
+4. 确认 `/v1/init` 下发的 `syncedAiSites` 包含 `id/name/toolProtocol/selectors`。
+5. 验证配置格式的工具调用能被捕获，另一格式不会被当作工具调用。
+6. 验证工具结果按 `toolProtocol` 成功回填。
 7. 验证自动发送正常。
 
 ## 常见坑

@@ -12,6 +12,7 @@ suite('gateway init route helpers', () => {
                 address: 'https://chatgpt.com',
                 showQuickLaunch: true,
                 browser: 'isolated-edge',
+                toolProtocol: 'xml',
                 selectors: {
                     messageBlocks: '.message',
                     codeBlocks: 'pre code',
@@ -22,8 +23,12 @@ suite('gateway init route helpers', () => {
             }
         ] satisfies ResolvedAiSiteConfig[]);
 
-        assert.deepStrictEqual(Object.keys(syncedSites[0]).sort(), ['id', 'name', 'selectors']);
+        assert.deepStrictEqual(
+            Object.keys(syncedSites[0]).sort(),
+            ['id', 'name', 'selectors', 'toolProtocol']
+        );
         assert.strictEqual(syncedSites[0].id, 'chatgpt');
         assert.strictEqual(syncedSites[0].name, 'ChatGPT');
+        assert.strictEqual(syncedSites[0].toolProtocol, 'xml');
     });
 });

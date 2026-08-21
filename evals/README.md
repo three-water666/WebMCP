@@ -137,6 +137,13 @@ Runner 会自动准备隔离 workspace，启动 VS Code Extension Host、Gateway
 运行需要在该 Edge 窗口中登录 DeepSeek；登录状态会保存在被 Git 忽略的
 `evals/live-profiles/deepseek/`，后续运行通常无需再次登录。
 
+DeepSeek 的内置站点配置默认使用 XML 工具协议；提示词、协议错误反馈和工具结果回填都会使用
+XML。工具调用必须是独立的、带 `xml` 语言标记的围栏代码块，根元素为 `<tool_call>`，参数使用原生 XML
+子元素和 `<item>` 数组；解析器不会兼容 `<tool_calls><invoke><parameter>` 等其他 XML 方言。
+可在 `webcodeGateway.aiSites` 中用 `{ "id": "deepseek", "toolProtocol": "json" }` 切回 JSON
+做对照测试。每次初始化只注入站点选中的一种调用协议；Available Tools 的 JSON Schema 和
+Available Skills 的 JSON 仅用于描述能力，不代表同时启用 JSON 调用。
+
 `read_file`、`write_file`、搜索、项目上下文和 Skills 等限定在隔离 workspace 内的工具会自动批准。
 场景声明的本地 mock MCP 工具也会自动批准。命令执行、终端工具和未列入白名单的工具不会自动
 批准，出现弹框时需要人工核对并点击允许。验证码、账号异常和站点风控同样需要人工处理。

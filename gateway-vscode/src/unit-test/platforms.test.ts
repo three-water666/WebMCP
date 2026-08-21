@@ -15,7 +15,19 @@ suite('platform registry', () => {
         assert.ok(chatgpt);
         assert.strictEqual(chatgpt.name, 'ChatGPT');
         assert.strictEqual(chatgpt.address, 'https://chatgpt.com');
+        assert.strictEqual(chatgpt.toolProtocol, 'json');
         assert.strictEqual(typeof chatgpt.selectors.inputArea, 'string');
+    });
+
+    test('uses XML for DeepSeek and allows a per-site protocol override', () => {
+        const builtinDeepseek = findAiSiteById(getConfiguredAiSites(undefined), 'deepseek');
+        assert.strictEqual(builtinDeepseek?.toolProtocol, 'xml');
+
+        const overriddenDeepseek = findAiSiteById(getConfiguredAiSites([{
+            id: 'deepseek',
+            toolProtocol: 'json'
+        }]), 'deepseek');
+        assert.strictEqual(overriddenDeepseek?.toolProtocol, 'json');
     });
 
     test('uses Qwen selectors that prefer the first comparison response', () => {
@@ -78,6 +90,7 @@ suite('platform registry', () => {
         assert.ok(custom);
         assert.strictEqual(custom.name, 'Custom AI');
         assert.strictEqual(custom.address, 'https://ai.example.test/chat');
+        assert.strictEqual(custom.toolProtocol, 'json');
         assert.strictEqual(custom.selectors.inputArea, 'textarea');
     });
 

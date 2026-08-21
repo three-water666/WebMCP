@@ -8,6 +8,7 @@ Initialization command:
   "mcp_action": "call",
   "name": "{{INIT_TOOL_NAME}}",
   "purpose": "Initialize {{PRODUCT_NAME}} for this conversation",
+  "arguments": {},
   "request_id": "init_unique_1"
 }
 ```

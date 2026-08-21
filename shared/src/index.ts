@@ -39,6 +39,11 @@ export const PROTOCOL = {
 export const PLATFORM_PROMPT_KEY_PREFIX = 'platform_prompt_';
 
 export type PromptLanguage = 'zh' | 'en';
+export type ToolProtocolFormat = 'json' | 'xml';
+
+export function normalizeToolProtocolFormat(value: unknown): ToolProtocolFormat {
+  return value === 'xml' ? 'xml' : 'json';
+}
 
 export function getPlatformPromptStorageKey(
   siteId: string | null | undefined,
