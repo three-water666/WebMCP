@@ -1,0 +1,46 @@
+import { defineConfig } from '@vscode/test-cli';
+import { fileURLToPath } from 'node:url';
+
+const extensionDevelopmentPath = fileURLToPath(new URL('../gateway-vscode', import.meta.url));
+const workspaceFolder = requireEnvironmentPath('WEBCODE_EVAL_WORKSPACE');
+const vscodeExecutablePath = process.env.WEBCODE_EVAL_VSCODE_PATH?.trim();
+
+export default defineConfig({
+  files: 'out/extension-test/deepseekLive.test.js',
+  version: process.env.VSCODE_TEST_VERSION?.trim() || '1.106.1',
+  extensionDevelopmentPath,
+  workspaceFolder,
+  launchArgs: [
+    '--disable-workspace-trust',
+    '--skip-release-notes',
+    '--skip-welcome',
+  ],
+  env: {
+    WEBCODE_EVAL_MODE: '1',
+    WEBCODE_EVAL_BROWSER_PATH: process.env.WEBCODE_EVAL_BROWSER_PATH,
+    WEBCODE_EVAL_RUN_DIR: process.env.WEBCODE_EVAL_RUN_DIR,
+    WEBCODE_EVAL_SCENARIO_PATH: process.env.WEBCODE_EVAL_SCENARIO_PATH,
+    WEBCODE_EVAL_TRACE_PATH: process.env.WEBCODE_EVAL_TRACE_PATH,
+    WEBCODE_LIVE_APPROVED_TOOLS: process.env.WEBCODE_LIVE_APPROVED_TOOLS,
+    WEBCODE_LIVE_DEEP_THINKING: process.env.WEBCODE_LIVE_DEEP_THINKING,
+    WEBCODE_LIVE_LOGIN_TIMEOUT_MS: process.env.WEBCODE_LIVE_LOGIN_TIMEOUT_MS,
+    WEBCODE_LIVE_MODEL_MODE: process.env.WEBCODE_LIVE_MODEL_MODE,
+    WEBCODE_LIVE_PROFILE_PATH: process.env.WEBCODE_LIVE_PROFILE_PATH,
+    WEBCODE_LIVE_SETUP_DELAY_MS: process.env.WEBCODE_LIVE_SETUP_DELAY_MS,
+    WEBCODE_LIVE_RUN_TIMEOUT_MS: process.env.WEBCODE_LIVE_RUN_TIMEOUT_MS,
+  },
+  ...(vscodeExecutablePath
+    ? { useInstallation: { fromPath: vscodeExecutablePath } }
+    : {}),
+  mocha: {
+    timeout: 30 * 60 * 1000,
+  },
+});
+
+function requireEnvironmentPath(name) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`Missing required environment variable ${name}. Run through scripts/run-deepseek-live.mjs.`);
+  }
+  return value;
+}

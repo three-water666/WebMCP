@@ -37,7 +37,7 @@ export function launchIsolatedEdgeProfile(context: vscode.ExtensionContext): voi
     });
 }
 
-function buildBridgeUrl(currentPort: number, currentToken: string, siteId: string, targetUrl: string): string {
+export function buildBridgeUrl(currentPort: number, currentToken: string, siteId: string, targetUrl: string): string {
     const params = new URLSearchParams({
         bridgeToken: currentToken,
         siteId,

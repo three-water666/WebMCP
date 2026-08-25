@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { registerGatewayConfigurationWatcher } from './extension/configurationWatcher';
+import { buildBridgeUrl } from './extension/browserLauncher';
 import { registerGatewayConnectCommand } from './extension/connectCommand';
 import { registerCopyContextCommand } from './extension/copyContextCommand';
 import { registerIsolatedProfileCleanupCommand } from './extension/isolatedProfileCleanupCommand';
@@ -11,7 +12,14 @@ import {
 import { createSkillWatcherController } from './extension/skillWatchers';
 import { updateGatewayStatusBar } from './extension/statusBar';
 import { GatewayManager } from './gateway';
+import { createGatewayRuntimeTraceSinkFromEnvironment } from './gateway/runtimeTrace';
 import { t } from './i18n';
+import {
+    findAiSiteById,
+    getConfiguredAiSites,
+    type AISiteConfig,
+    type ResolvedAiSiteConfig
+} from './platforms';
 
 interface RuntimeHolder {
     serviceController?: GatewayServiceController;
@@ -25,6 +33,11 @@ export interface GatewayExtensionState {
 
 export interface GatewayExtensionApi {
     getGatewayState(): GatewayExtensionState;
+    evaluation?: {
+        getSiteConfiguration(siteId: string): ResolvedAiSiteConfig;
+        startAndCreateBridgeUrl(siteId: string, targetUrl: string): Promise<string>;
+        stop(): Promise<void>;
+    };
 }
 
 /**
@@ -54,9 +67,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
     // 创建本地网关管理器。它持有 Express 服务、MCP server 连接、本地工具、
     // 技能缓存、终端会话等核心运行时能力；extension.ts 只保留它的实例引用，
     // 具体启动参数由 serviceController 在用户点击启动或配置变更重启时组装。
-    const manager = new GatewayManager(outputChannel, context.extensionPath, context, () => {
-        runtime.serviceController?.markAutoStopped();
-    });
+    const manager = new GatewayManager(
+        outputChannel,
+        context.extensionPath,
+        context,
+        () => {
+            runtime.serviceController?.markAutoStopped();
+        },
+        createGatewayRuntimeTraceSinkFromEnvironment()
+    );
 
     // 创建技能目录监听控制器，并在激活时立即按当前 workspace/config 扫一遍。
     // watcher 只负责在 SKILL.md 或技能目录内容变化时通知 manager 失效缓存，
@@ -122,10 +141,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
     updateGatewayStatusBar(statusBarItem, false, undefined, false);
     // Do not auto-start
 
-    return {
+    const api: GatewayExtensionApi = {
         getGatewayState() {
             const { currentPort, isStarting, isRunning } = serviceController.getState();
             return { currentPort, isStarting, isRunning };
         }
     };
+
+    if (process.env.WEBCODE_EVAL_MODE === '1') {
+        api.evaluation = {
+            getSiteConfiguration(siteId: string): ResolvedAiSiteConfig {
+                const configured = vscode.workspace
+                    .getConfiguration('webcodeGateway')
+                    .get<AISiteConfig[]>('aiSites');
+                const site = findAiSiteById(getConfiguredAiSites(configured), siteId);
+                if (!site) {
+                    throw new Error(`Evaluation site is not configured: ${siteId}`);
+                }
+                return site;
+            },
+            async startAndCreateBridgeUrl(siteId: string, targetUrl: string): Promise<string> {
+                await serviceController.start();
+                const state = serviceController.getState();
+                if (!state.isRunning || !state.currentPort || !state.currentToken) {
+                    throw new Error('Evaluation Gateway failed to start.');
+                }
+                return buildBridgeUrl(state.currentPort, state.currentToken, siteId, targetUrl);
+            },
+            async stop(): Promise<void> {
+                await serviceController.stop();
+            }
+        };
+    }
+
+    return api;
 }

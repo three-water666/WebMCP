@@ -22,3 +22,5 @@ skills-lock.json
 .qoder
 .trae
 .vscode-test
+/evals/runs/
+/evals/live-profiles/

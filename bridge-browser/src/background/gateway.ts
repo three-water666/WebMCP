@@ -35,6 +35,7 @@ export async function executeTool(
       body: JSON.stringify({
         name: payload.name,
         arguments: payload.arguments ?? {},
+        request_id: payload.request_id,
       }),
     });
     await recordGatewayActivity(tabId);

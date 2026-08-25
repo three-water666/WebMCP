@@ -6,6 +6,9 @@
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "test:extension": "pnpm --filter gateway-vscode run test:extension",
+    "test:e2e:minimal": "pnpm --filter @webcode/evals run e2e:minimal",
+    "eval:scenarios": "pnpm --filter @webcode/evals run scenarios",
+    "eval:deepseek": "pnpm --filter @webcode/evals run live:deepseek",
     "lint": "eslint .",
     "prepare": "husky"
   },
