@@ -6,6 +6,7 @@
   "fixture": "../../fixtures/minimal-tool-loop",
   "timeoutMs": 90000,
   "expected": {
+    "workflow": "minimal-tool-loop",
     "readPath": "seed.txt",
     "readContains": "webcode deterministic fixture",
     "writtenPath": "generated/result.txt",

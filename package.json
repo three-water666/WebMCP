@@ -7,6 +7,7 @@
     "test": "pnpm -r run test",
     "test:extension": "pnpm --filter gateway-vscode run test:extension",
     "test:e2e:minimal": "pnpm --filter @webcode/evals run e2e:minimal",
+    "test:e2e:command-risk": "pnpm --filter @webcode/evals run e2e:command-risk",
     "eval:scenarios": "pnpm --filter @webcode/evals run scenarios",
     "eval:deepseek": "pnpm --filter @webcode/evals run live:deepseek",
     "lint": "eslint .",

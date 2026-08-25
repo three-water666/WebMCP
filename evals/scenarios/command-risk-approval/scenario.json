@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "command-risk-approval",
+  "title": "Deterministic command risk approval flow",
+  "kind": "contract-e2e",
+  "fixture": "../../fixtures/minimal-tool-loop",
+  "timeoutMs": 120000,
+  "expected": {
+    "workflow": "command-risk-approval",
+    "toolCalls": [
+      "execute_command",
+      "execute_command",
+      "run_in_terminal",
+      "execute_command"
+    ],
+    "allowedCommand": "node --version && node --version",
+    "confirmationCommand": "node -e \"process.stdout.write('risk-approved')\"",
+    "confirmationOutput": "risk-approved",
+    "terminalConfirmationCommand": "node -e \"process.stdout.write('terminal-risk-approved')\"",
+    "blockedCommand": "pwsh -EncodedCommand ZQBjAGgAbwA=",
+    "blockedReason": "Encoded PowerShell evaluation"
+  }
+}

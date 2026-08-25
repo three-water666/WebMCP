@@ -2,6 +2,7 @@ import * as http from 'node:http';
 
 import { appendEvalTrace, type EvalTraceEvent } from '../harness/trace';
 import type { ContractE2EScenario } from '../harness/scenario';
+import { buildCommandRiskFixturePage } from './commandRiskFixturePage';
 
 type FixtureSiteEvent = Omit<EvalTraceEvent, 'runId' | 'source' | 'timestamp'> & {
     timestamp?: string;
@@ -89,9 +90,17 @@ export class DeterministicFixtureSite {
     }
 }
 
-// The page is intentionally self-contained so the browser E2E has no asset server or bundler dependency.
-// eslint-disable-next-line max-lines-per-function
 function buildFixturePage(scenario: ContractE2EScenario): string {
+    return scenario.expected.workflow === 'command-risk-approval'
+        ? buildCommandRiskFixturePage(scenario.expected)
+        : buildMinimalToolLoopFixturePage(scenario);
+}
+
+// eslint-disable-next-line max-lines-per-function
+function buildMinimalToolLoopFixturePage(scenario: ContractE2EScenario): string {
+    if (scenario.expected.workflow !== 'minimal-tool-loop') {
+        throw new Error(`Unsupported minimal fixture workflow: ${scenario.expected.workflow}`);
+    }
     const pageConfig = JSON.stringify({
         readContains: scenario.expected.readContains,
         readPath: scenario.expected.readPath,

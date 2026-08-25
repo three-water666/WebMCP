@@ -45,6 +45,11 @@ suite('Deterministic minimal E2E', () => {
         const runId = path.basename(runDirectory);
         const scenario = await loadScenario(scenarioPath);
         assert.strictEqual(scenario.kind, 'contract-e2e', 'The minimal E2E requires a contract scenario.');
+        assert.strictEqual(scenario.expected.workflow, 'minimal-tool-loop');
+        if (scenario.expected.workflow !== 'minimal-tool-loop') {
+            assert.fail('The minimal E2E requires the minimal-tool-loop workflow.');
+        }
+        const expected = scenario.expected;
         fixtureSite = new DeterministicFixtureSite(scenario, runId, tracePath);
         const fixtureUrl = await fixtureSite.start();
 
@@ -99,8 +104,8 @@ suite('Deterministic minimal E2E', () => {
         await page.screenshot({ path: path.join(runDirectory, 'minimal-e2e.png'), fullPage: true });
 
         assert.strictEqual(
-            await fs.readFile(path.join(workspacePath, scenario.expected.writtenPath), 'utf8'),
-            scenario.expected.writtenContent,
+            await fs.readFile(path.join(workspacePath, expected.writtenPath), 'utf8'),
+            expected.writtenContent,
             'The write_file call should modify only the isolated evaluation workspace.'
         );
         assert.strictEqual(

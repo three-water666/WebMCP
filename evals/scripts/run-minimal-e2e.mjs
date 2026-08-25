@@ -14,7 +14,12 @@ const { appendEvalTrace } = require('../out/harness/trace.js');
 
 const evalsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(evalsRoot, '..');
-const scenarioPath = path.join(evalsRoot, 'scenarios', 'minimal-tool-loop', 'scenario.json');
+const scenarioId = process.argv[2]?.trim() || 'minimal-tool-loop';
+const testFile = process.argv[3]?.trim() || 'minimalE2E.test.js';
+if (!/^[A-Za-z0-9._-]+$/.test(scenarioId) || !/^[A-Za-z0-9._-]+\.test\.js$/.test(testFile)) {
+  throw new Error('E2E scenario id or compiled test filename contains unsupported characters.');
+}
+const scenarioPath = path.join(evalsRoot, 'scenarios', scenarioId, 'scenario.json');
 const scenario = await loadScenario(scenarioPath);
 const run = await prepareEvalRun(evalsRoot, scenario);
 const startedAt = new Date().toISOString();
@@ -54,6 +59,7 @@ const child = spawn(process.execPath, [
     WEBCODE_EVAL_BROWSER_PATH: browserPath,
     WEBCODE_EVAL_RUN_DIR: run.runDirectory,
     WEBCODE_EVAL_SCENARIO_PATH: scenarioPath,
+    WEBCODE_EVAL_TEST_FILE: `out/extension-test/${testFile}`,
     WEBCODE_EVAL_TRACE_PATH: run.tracePath,
     WEBCODE_EVAL_VSCODE_PATH: vscodePath,
     WEBCODE_EVAL_WORKSPACE: run.workspacePath,
@@ -77,7 +83,7 @@ appendEvalTrace(run.tracePath, {
 });
 await writeRunManifest(status, exitCode);
 
-console.log(`webcode minimal E2E ${status}.`);
+console.log(`webcode ${scenario.id} E2E ${status}.`);
 console.log(`Run artifacts: ${run.runDirectory}`);
 process.exitCode = exitCode;
 
