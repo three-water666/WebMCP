@@ -28,6 +28,8 @@ export interface MessageRequest {
   autoApproveTools?: boolean;
   defaultAutoApproveTools?: boolean;
   payload?: ToolExecutionPayload;
+  approvalToken?: string;
+  challengeId?: string;
 }
 
 export interface HandshakeResponse {

@@ -2,6 +2,7 @@ import { type ToolExecutionPayload } from "../types";
 import {
   getCommandExecutable,
   getCommandPrefix,
+  isCommandApprovalScopeAllowed,
   isBroadCommandExecutable,
   normalizeCommandValue,
   type CommandApprovalScope,
@@ -23,6 +24,11 @@ import {
 type ModalCallbacks = {
   onConfirm: (scope: CommandApprovalScope) => void;
   onReject: (reason: string) => void;
+};
+
+export type ApprovalModalOptions = {
+  mandatory?: boolean;
+  riskReasons?: string[];
 };
 
 type ModalElements = {
@@ -134,20 +140,24 @@ function showApprovalWindowAttention(payload: ToolExecutionPayload): void {
 export function showConfirmationModal(
   payload: ToolExecutionPayload,
   onConfirm: (scope: CommandApprovalScope) => void,
-  onReject: (reason: string) => void
+  onReject: (reason: string) => void,
+  options: ApprovalModalOptions = {}
 ): void {
   const host = createModalHost();
   const shadow = host.attachShadow({ mode: "open" });
   shadow.appendChild(createStyleElement());
 
   const details = getCommandApprovalDetails(payload);
-  const card = createModalCard(payload, details);
+  const card = createModalCard(payload, details, options);
   const overlay = createModalOverlay(card);
   const elements = getModalElements(card);
+  if (options.mandatory) {
+    elements.btnAlways.style.display = "none";
+  }
   const removeModalGuards = installReasonFocusGuards(host, shadow, elements.inputReason);
   const closeModal = createCloseModal(host, removeModalGuards);
 
-  bindModalActions(elements, details, { onConfirm, onReject }, closeModal);
+  bindModalActions(elements, details, { onConfirm, onReject }, closeModal, options.mandatory === true);
   shadow.appendChild(overlay);
   showApprovalWindowAttention(payload);
 }
@@ -173,10 +183,14 @@ function createStyleElement(): HTMLStyleElement {
   return style;
 }
 
-function createModalCard(payload: ToolExecutionPayload, details: CommandApprovalDetails): HTMLElement {
+function createModalCard(
+  payload: ToolExecutionPayload,
+  details: CommandApprovalDetails,
+  options: ApprovalModalOptions
+): HTMLElement {
   const card = document.createElement("div");
   card.className = "card";
-  card.innerHTML = renderApprovalModalHtml(createModalContent(payload, details));
+  card.innerHTML = renderApprovalModalHtml(createModalContent(payload, details, options));
   return card;
 }
 
@@ -189,7 +203,8 @@ function createModalOverlay(card: HTMLElement): HTMLElement {
 
 function createModalContent(
   payload: ToolExecutionPayload,
-  details: CommandApprovalDetails
+  details: CommandApprovalDetails,
+  options: ApprovalModalOptions
 ): ApprovalModalContent {
   return {
     alwaysDescription: details.isCommandScopedApproval ? t("cmd_always_desc") : t("always_desc_2"),
@@ -199,26 +214,56 @@ function createModalContent(
     safeArgs: escapeHtml(JSON.stringify(payload.arguments ?? {}, null, 2)),
     safeName: escapeHtml(payload.name),
     safePurpose: escapeHtml(payload.purpose ?? "No purpose provided."),
+    safeRiskReasons: (options.riskReasons ?? []).map(escapeHtml),
   };
 }
 
 function getCommandApprovalDetails(payload: ToolExecutionPayload): CommandApprovalDetails {
   const commandValue = normalizeCommandValue(payload.arguments?.command) ?? "";
   const isCommandScopedApproval = isCommandApprovalPayload(payload.name, commandValue);
-  const executableValue = isCommandScopedApproval ? getCommandExecutable(commandValue) ?? "" : "";
-  const isBroadExecutable = Boolean(executableValue && isBroadCommandExecutable(executableValue));
-  const prefixValue = isCommandScopedApproval ? getCommandPrefix(commandValue) ?? "" : "";
+  if (!isCommandScopedApproval) {
+    return {
+      commandValue,
+      exactKey: "",
+      executableKey: "",
+      isBroadExecutable: false,
+      isCommandScopedApproval: false,
+      prefixKey: "",
+    };
+  }
+
+  const executableValue = getCommandExecutable(commandValue) ?? "";
+  const isBroadExecutable = Boolean(
+    executableValue
+    && (
+      isBroadCommandExecutable(executableValue)
+      || !isCommandApprovalScopeAllowed(commandValue, "executable")
+    )
+  );
+  const prefixValue = getCommandPrefix(commandValue) ?? "";
+  const contextValue = getCommandContextValue(payload);
 
   return {
     commandValue,
-    exactKey: isCommandScopedApproval ? escapeHtml(`command-exact:${payload.name}:${commandValue}`) : "",
+    exactKey: escapeHtml(`command-exact:${payload.name}:${contextValue}:${commandValue}`),
     executableKey: executableValue && !isBroadExecutable
-      ? escapeHtml(`command-executable:${payload.name}:${executableValue}`)
+      ? escapeHtml(`command-executable:${payload.name}:${contextValue}:${executableValue}`)
       : "",
     isBroadExecutable,
-    isCommandScopedApproval,
-    prefixKey: prefixValue ? escapeHtml(`command-prefix:${payload.name}:${prefixValue}`) : "",
+    isCommandScopedApproval: true,
+    prefixKey: prefixValue
+      ? escapeHtml(`command-prefix:${payload.name}:${contextValue}:${prefixValue}`)
+      : "",
   };
+}
+
+function getCommandContextValue(payload: ToolExecutionPayload): string {
+  const args = payload.arguments ?? {};
+  const path = typeof args.path === "string" && args.path.trim() ? args.path.trim() : ".";
+  const profile = typeof args.profile === "string" && args.profile.trim()
+    ? args.profile.trim()
+    : "default";
+  return `${encodeURIComponent(path)}:${encodeURIComponent(profile)}`;
 }
 
 function isCommandApprovalPayload(toolName: string, commandValue: string): boolean {
@@ -275,7 +320,8 @@ function bindModalActions(
   elements: ModalElements,
   details: CommandApprovalDetails,
   callbacks: ModalCallbacks,
-  closeModal: () => void
+  closeModal: () => void,
+  mandatory: boolean
 ): void {
   const state: ModalState = { rejectStep: 0 };
   elements.btnConfirm.onclick = () => confirmScope(false, callbacks, closeModal);
@@ -285,7 +331,7 @@ function bindModalActions(
   bindScopeButton(elements.btnAllowExecutable, "executable", callbacks, closeModal, details.executableKey);
   bindScopeButton(elements.btnAllowPrefix, "prefix", callbacks, closeModal, details.prefixKey);
   bindRejectFlow(elements, state, callbacks, closeModal);
-  bindBackButton(elements, state);
+  bindBackButton(elements, state, mandatory);
   bindReasonInput(elements);
 }
 
@@ -351,13 +397,13 @@ function showRejectReasonView(elements: ModalElements, state: ModalState): void 
   elements.btnBack.style.display = "inline-block";
 }
 
-function bindBackButton(elements: ModalElements, state: ModalState): void {
+function bindBackButton(elements: ModalElements, state: ModalState, mandatory: boolean): void {
   elements.btnBack.onclick = () => {
-    resetModalView(elements, state);
+    resetModalView(elements, state, mandatory);
   };
 }
 
-function resetModalView(elements: ModalElements, state: ModalState): void {
+function resetModalView(elements: ModalElements, state: ModalState, mandatory: boolean): void {
   state.rejectStep = 0;
   elements.inputReason.style.display = "none";
   elements.inputReason.value = "";
@@ -366,7 +412,7 @@ function resetModalView(elements: ModalElements, state: ModalState): void {
   elements.viewAlways.style.display = "none";
   elements.btnConfirm.style.display = "inline-block";
   elements.btnReject.style.display = "inline-block";
-  elements.btnAlways.style.display = "inline-block";
+  elements.btnAlways.style.display = mandatory ? "none" : "inline-block";
   elements.btnBack.style.display = "none";
   elements.btnConfirmAlways.style.display = "none";
 }

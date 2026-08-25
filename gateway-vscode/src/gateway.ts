@@ -21,7 +21,11 @@ import {
     createRequestLoggerMiddleware
 } from './gateway/middleware';
 import { connectToConfiguredServers } from './gateway/serverConnector';
-import { createToolCallHandler } from './gateway/toolCallRoute';
+import {
+    createToolApprovalHandler,
+    createToolCallHandler,
+    createToolPreflightHandler
+} from './gateway/toolCallRoute';
 import { generateGroupedTools } from './gateway/toolGroups';
 import type {
     ConnectedClient,
@@ -31,6 +35,7 @@ import type {
     StartResult
 } from './gateway/types';
 import type { GatewayRuntimeTraceSink } from './gateway/runtimeTrace';
+import { CommandApprovalManager } from './gateway/commandApproval';
 
 export class GatewayManager {
     private app: express.Express | null = null;
@@ -49,6 +54,8 @@ export class GatewayManager {
     private terminalSessionManager: TerminalSessionManager;
     private skillDirectories: string[] = [];
     private commandShellPath: string | undefined;
+    private commandAllowedRoots: string[] = [];
+    private readonly commandApprovalManager = new CommandApprovalManager();
     private readonly traceSink: GatewayRuntimeTraceSink | undefined;
 
     constructor(
@@ -133,6 +140,7 @@ export class GatewayManager {
             terminalSessionManager: this.terminalSessionManager,
             skillDirectories: this.skillDirectories,
             commandShellPath: this.commandShellPath,
+            commandAllowedRoots: this.commandAllowedRoots,
             listTools: () => this._generateGroupedTools(),
             getToolDefinition: (name: string) => this.getToolDefinition(name)
         };
@@ -171,7 +179,8 @@ export class GatewayManager {
             log: this.log.bind(this)
         });
 
-        this.app.post('/v1/tools/call', createToolCallHandler({
+        const toolCallOptions = {
+            commandApprovalManager: this.commandApprovalManager,
             createToolExecutionContext: () => this.createToolExecutionContext(),
             error: this.error.bind(this),
             getToolDefinition: (name: string) => this.getToolDefinition(name),
@@ -180,7 +189,10 @@ export class GatewayManager {
             log: this.log.bind(this),
             trace: this.trace.bind(this),
             toolRouter: this.toolRouter
-        }));
+        };
+        this.app.post('/v1/tools/preflight', createToolPreflightHandler(toolCallOptions));
+        this.app.post('/v1/tools/approve', createToolApprovalHandler(this.commandApprovalManager));
+        this.app.post('/v1/tools/call', createToolCallHandler(toolCallOptions));
     }
 
     private getServerPort(): number {
@@ -203,6 +215,8 @@ export class GatewayManager {
         this.skillDirectories = config.skillDirectories ?? [];
         const commandShellPath = config.commandShellPath?.trim();
         this.commandShellPath = commandShellPath === '' ? undefined : commandShellPath;
+        this.commandAllowedRoots = config.commandAllowedRoots ?? [];
+        this.commandApprovalManager.clear();
         this.trace({
             event: 'gateway_starting',
             status: 'started',
@@ -287,5 +301,6 @@ export class GatewayManager {
             } catch { }
         });
         this.connectedClients = [];
+        this.commandApprovalManager.clear();
     }
 }

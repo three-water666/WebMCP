@@ -21,8 +21,8 @@
 | `edit_file` | 对 workspace 内文本文件做精确文本替换或应用 unified diff patch，可用 `dryRun` 返回 diff 预览。 |
 | `search_files` | 按文件名或相对路径搜索文件，优先使用 ripgrep 文件枚举，支持子串、glob、默认不区分大小写，并默认尊重 ignore 文件。 |
 | `search_code` | 基于 ripgrep 在 workspace 文本文件中搜索代码内容，返回相对路径、行号和命中行；使用正则语法时需传 `match: "regex"`。 |
-| `execute_command` | 在后台执行短生命周期 POSIX/bash 命令并返回 stdout/stderr/exitCode，适用于构建、测试、git、包管理器和项目脚本；可用 `path` 指定执行目录。读取或搜索文件应优先使用 `read_file`、`search_files`、`search_code`。 |
-| `run_in_terminal` | 在真实 VS Code 集成终端中运行命令，立即返回 `session_id`，适合 `pnpm dev`、watch、开发服务器等常驻任务或需要用户可见输出的任务；可用 `path` 指定执行目录，所有 terminal profile 使用同一种路径格式。支持动态发现并选择常用 terminal profile，例如 `default`、`git-bash`、`pwsh`、`powershell`；工具描述会在初始化时列出当前环境可用项。明显破坏性、提权或 shell 逃逸类命令会按所选 shell 类型在执行前被拒绝。 |
+| `execute_command` | 在后台执行短生命周期命令并返回 stdout/stderr/exitCode，适用于构建、测试、git、包管理器和项目脚本；可用 `path` 指定执行目录，用 `profile` 选择 Git Bash、PowerShell 或 POSIX shell。省略 `profile` 时保留 POSIX/Git Bash 行为。读取或搜索文件应优先使用专用文件工具。 |
+| `run_in_terminal` | 在真实 VS Code 集成终端中运行命令，立即返回 `session_id`，适合常驻任务或需要用户可见输出的流程；可用 `path` 指定执行目录，并支持动态发现的 `default`、`git-bash`、`pwsh`、`powershell` 等 profile。命令按允许、逐次确认、拒绝三级策略预检。 |
 | `terminal_session` | 管理由 `run_in_terminal` 创建的终端会话：`action=list` 查看状态，`action=read` 读取输出并可用 `delay_seconds` 等待 0 到 10 秒后再读，`action=stop` 发送 `Ctrl+C` 请求中断当前命令并保留终端窗口，`action=close` 关闭终端标签页；会话摘要中的 `path` 为 workspace 相对目录。 |
 
 `run_in_terminal` 和 `terminal_session` 的 profile 发现、shell integration 输出采集、`stop`/`close` 语义和安全策略见 [run_in_terminal 与 terminal_session 设计说明](RUN_IN_TERMINAL_GUIDE.md)。

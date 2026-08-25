@@ -30,6 +30,22 @@ interface ToolExecutionResponse {
   data?: unknown;
 }
 
+interface ToolPreflightResponse {
+  success: boolean;
+  error?: string;
+  risk?: {
+    level: "allowed" | "requires_confirmation" | "blocked";
+    reasons: string[];
+  };
+  challengeId?: string;
+}
+
+interface ToolApprovalResponse {
+  success: boolean;
+  approvalToken?: string;
+  error?: string;
+}
+
 interface QueuedApprovalRequest {
   request: ToolExecutionRequest;
   reject: (error: Error) => void;
@@ -56,8 +72,6 @@ export class ToolExecutor {
       payload,
     };
 
-    // Normal capture flow assigns a stable identity in ToolCallTracker before execution.
-    void this.queueApprovalIfNeeded(request);
     this.toolExecutionQueue.push(request);
     void this.processToolExecutionQueue();
   }
@@ -148,10 +162,27 @@ export class ToolExecutor {
       return;
     }
 
-    const approved = await this.waitForApproval(request);
-    if (!approved) {return;}
+    const preflight = await this.preflightCommand(request);
+    let approvalToken: string | undefined;
+    if (preflight?.risk?.level === "blocked") {
+      throw new Error(`Command blocked by security policy: ${preflight.risk.reasons.join(" ")}`);
+    }
+    if (preflight?.risk?.level === "requires_confirmation") {
+      const approved = await this.requestToolApproval(request, {
+        mandatory: true,
+        riskReasons: preflight.risk.reasons,
+      });
+      if (!approved) {return;}
+      if (!preflight.challengeId) {
+        throw new Error("Gateway did not return a command approval challenge.");
+      }
+      approvalToken = await this.grantCommandApproval(preflight.challengeId);
+    } else {
+      const approved = await this.waitForApproval(request);
+      if (!approved) {return;}
+    }
 
-    await this.performExecution(request);
+    await this.performExecution(request, approvalToken);
   }
 
   private async waitForApproval(request: ToolExecutionRequest): Promise<boolean> {
@@ -216,11 +247,14 @@ export class ToolExecutor {
    * 自动变化。这里先把 requestKey 标记为已结束，再把成功或失败结果写入 registry，
    * 最后通过 scheduleMainLoop 通知主循环重新计算当前轮次是否已经全部完成。
    */
-  private performExecution(request: ToolExecutionRequest): Promise<void> {
+  private performExecution(
+    request: ToolExecutionRequest,
+    approvalToken?: string
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         chrome.runtime.sendMessage(
-          { type: "EXECUTE_TOOL", payload: request.payload },
+          { type: "EXECUTE_TOOL", payload: request.payload, approvalToken },
           (response: unknown) => {
             this.options.requestRegistry.markSettled(request.identity.requestKey);
 
@@ -295,14 +329,17 @@ export class ToolExecutor {
     this.options.scheduleMainLoop(50);
   }
 
-  private requestToolApproval(request: ToolExecutionRequest): Promise<boolean> {
+  private requestToolApproval(
+    request: ToolExecutionRequest,
+    modalOptions: UI.ApprovalModalOptions = {}
+  ): Promise<boolean> {
     return new Promise((resolve) => {
       UI.showConfirmationModal(
         request.payload,
         (scope) => {
           this.focusInput();
 
-          if (scope) {
+          if (scope && !modalOptions.mandatory) {
             persistApprovalRule(request.payload, scope, this.options.getApprovalState());
             void chrome.storage.local.set({
               [`allowed_tools_${this.options.getWorkspaceId()}`]: buildStoredApprovalEntries(this.options.getApprovalState()),
@@ -325,8 +362,37 @@ export class ToolExecutor {
           );
           this.options.scheduleMainLoop(50);
           resolve(false);
-        }
+        },
+        modalOptions
       );
+    });
+  }
+
+  private preflightCommand(request: ToolExecutionRequest): Promise<ToolPreflightResponse | null> {
+    if (request.payload.name !== "execute_command" && request.payload.name !== "run_in_terminal") {
+      return Promise.resolve(null);
+    }
+
+    return sendRuntimeMessage<ToolPreflightResponse>({
+      type: "PREFLIGHT_TOOL",
+      payload: request.payload,
+    }).then((response) => {
+      if (!response.success) {
+        throw new Error(response.error ?? "Command preflight failed.");
+      }
+      return response;
+    });
+  }
+
+  private grantCommandApproval(challengeId: string): Promise<string> {
+    return sendRuntimeMessage<ToolApprovalResponse>({
+      type: "APPROVE_TOOL",
+      challengeId,
+    }).then((response) => {
+      if (!response.success || !response.approvalToken) {
+        throw new Error(response.error ?? "Command approval failed.");
+      }
+      return response.approvalToken;
     });
   }
 
@@ -336,6 +402,18 @@ export class ToolExecutor {
 
     UI.focusInputArea(selectors);
   }
+}
+
+function sendRuntimeMessage<T>(message: unknown): Promise<T> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response: T) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message ?? "Runtime message failed."));
+        return;
+      }
+      resolve(response);
+    });
+  });
 }
 
 function formatSuccessfulResult(toolName: string, data: unknown): string {

@@ -31,7 +31,7 @@ const BROAD_COMMAND_EXECUTABLES = new Set([
 
 export function normalizeCommandValue(command: unknown): string | null {
   if (typeof command !== "string") {return null;}
-  const normalized = command.trim().replace(/\s+/g, " ");
+  const normalized = command.trim();
   return normalized || null;
 }
 
@@ -41,6 +41,7 @@ export function getCommandExecutable(command: string): string | null {
 }
 
 export function getCommandPrefix(command: string): string | null {
+  if (hasCommandControlSyntax(command)) {return null;}
   const tokens = tokenizeCommandLine(command);
   if (tokens.length < 2) {return null;}
   return `${tokens[0]} ${tokens[1]}`;
@@ -55,11 +56,15 @@ export function isCommandApprovalScopeAllowed(
   scope: Exclude<CommandApprovalScope, false>
 ): boolean {
   if (scope !== "executable") {
-    return true;
+    return scope !== "prefix" || !hasCommandControlSyntax(command);
   }
 
   const executable = getCommandExecutable(command);
-  return Boolean(executable && !isBroadCommandExecutable(executable));
+  return Boolean(
+    executable
+    && !isBroadCommandExecutable(executable)
+    && !hasCommandControlSyntax(command)
+  );
 }
 
 export function tokenizeCommandLine(command: string): string[] {
@@ -117,4 +122,8 @@ export function tokenizeCommandLine(command: string): string[] {
 function normalizeExecutableName(executable: string): string {
   const baseName = executable.split(/[\\/]/).pop() ?? executable;
   return baseName.replace(/\.(exe|cmd|bat|ps1)$/i, "").toLowerCase();
+}
+
+function hasCommandControlSyntax(command: string): boolean {
+  return /\$\(|[`{}"';&|\r\n]/.test(command);
 }

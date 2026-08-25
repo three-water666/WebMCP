@@ -98,9 +98,10 @@ function getCommandApprovalRule(
 ): string | null {
   const command = getPayloadCommand(payload);
   if (!command) {return null;}
+  const context = getCommandApprovalContext(payload);
 
   if (scope === "exact") {
-    return `command-exact:${payload.name}:${command}`;
+    return `command-exact:${payload.name}:${context}:${command}`;
   }
 
   if (!isCommandApprovalScopeAllowed(command, scope)) {
@@ -111,11 +112,20 @@ function getCommandApprovalRule(
   if (!executable) {return null;}
 
   if (scope === "executable") {
-    return `command-executable:${payload.name}:${executable}`;
+    return `command-executable:${payload.name}:${context}:${executable}`;
   }
 
   const prefix = getCommandPrefix(command);
-  return prefix ? `command-prefix:${payload.name}:${prefix}` : null;
+  return prefix ? `command-prefix:${payload.name}:${context}:${prefix}` : null;
+}
+
+function getCommandApprovalContext(payload: ToolExecutionPayload): string {
+  const args = isRecord(payload.arguments) ? payload.arguments : {};
+  const path = typeof args.path === "string" && args.path.trim() ? args.path.trim() : ".";
+  const profile = typeof args.profile === "string" && args.profile.trim()
+    ? args.profile.trim()
+    : "default";
+  return `${encodeURIComponent(path)}:${encodeURIComponent(profile)}`;
 }
 
 function getPayloadCommand(payload: ToolExecutionPayload): string | null {

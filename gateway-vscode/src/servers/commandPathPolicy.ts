@@ -1,6 +1,8 @@
 import * as path from 'path';
 import type { CommandRiskContext, CommandRiskIssue } from './commandRiskTypes';
 import type { ParsedShellCommand, ParsedShellSegment } from './shellCommandParser';
+import { isNonFileSystemPowerShellProvider, isShellControlOption } from './powershellPathPolicy';
+import { assessRecursiveRemoveTargets } from './recursiveRemovalPolicy';
 
 const POSIX_PATH_COMMANDS = new Set([
     'cat',
@@ -41,6 +43,7 @@ const POWERSHELL_PATH_COMMANDS = new Set([
     'ni',
     'rd',
     'remove-item',
+    'ri',
     'rm',
     'rmdir',
     'set-content',
@@ -49,7 +52,7 @@ const POWERSHELL_PATH_COMMANDS = new Set([
     'type'
 ]);
 
-const REMOVE_COMMANDS = new Set(['rm', 'remove-item', 'rmdir', 'rd', 'del', 'erase']);
+const REMOVE_COMMANDS = new Set(['rm', 'remove-item', 'ri', 'rmdir', 'rd', 'del', 'erase']);
 const COMMON_PATH_OPTIONS = new Set(['--cwd', '--dir', '--directory', '--file', '--out-dir', '--output', '--path', '--prefix']);
 const EMPTY_PATH_OPTIONS = new Set<string>();
 const POSIX_COMMAND_PATH_OPTIONS = new Map<string, ReadonlySet<string>>([
@@ -81,24 +84,11 @@ function assessSegmentPathPolicy(
     context: CommandRiskContext
 ): CommandRiskIssue[] {
     const issues: CommandRiskIssue[] = [];
-    issues.push(...assessCommandToken(parsed, segment, context));
     issues.push(...assessRedirections(parsed, segment, context));
     issues.push(...assessPathOptions(parsed, segment, context));
     issues.push(...assessPathCommandArguments(parsed, segment, context));
     issues.push(...assessObviousPathEscapes(parsed, segment, context));
     return issues;
-}
-
-function assessCommandToken(
-    parsed: ParsedShellCommand,
-    segment: ParsedShellSegment,
-    context: CommandRiskContext
-): CommandRiskIssue[] {
-    if (!segment.commandToken || !looksPathLike(segment.commandToken, parsed)) {
-        return [];
-    }
-
-    return assessPathToken(segment.commandToken, parsed, context, 'obvious');
 }
 
 function assessPathCommandArguments(
@@ -112,7 +102,12 @@ function assessPathCommandArguments(
 
     const args = collectCommandPathArgs(parsed, segment);
     const issues = args.flatMap(arg => assessPathToken(arg, parsed, context, 'argument'));
-    return isRecursiveRemove(segment) ? issues.concat(assessRecursiveRemoveTargets(args)) : issues;
+    return isRecursiveRemove(segment)
+        ? issues.concat(assessRecursiveRemoveTargets(args, target => {
+            const candidate = normalizePathCandidate(target);
+            return isDynamicPathReference(candidate) || isPathInsideWorkspace(candidate, parsed, context);
+        }))
+        : issues;
 }
 
 function assessObviousPathEscapes(
@@ -258,7 +253,10 @@ function assessPathToken(
         return [];
     }
     if (isDynamicPathReference(candidate)) {
-        return [blocked(`Dynamic path argument "${candidate}" cannot be verified against the workspace.`)];
+        return [requiresConfirmation(`Dynamic path argument "${candidate}" cannot be verified against the configured command roots.`)];
+    }
+    if (parsed.shellKind === 'powershell' && isNonFileSystemPowerShellProvider(candidate)) {
+        return [blocked(`PowerShell provider path "${candidate}" is outside the filesystem workspace policy.`)];
     }
     if (!looksPathLike(candidate, parsed) && mode === 'obvious') {
         return [];
@@ -266,13 +264,7 @@ function assessPathToken(
 
     return isPathInsideWorkspace(candidate, parsed, context)
         ? []
-        : [blocked(`Path argument "${candidate}" resolves outside the VS Code workspace.`)];
-}
-
-function assessRecursiveRemoveTargets(targets: string[]): CommandRiskIssue[] {
-    return targets
-        .filter(isDangerousRemovalTarget)
-        .map(() => dangerous('Recursive removal of workspace root, parent paths, .git, variables, or broad wildcards is not allowed.'));
+        : [requiresConfirmation(`Path argument "${candidate}" resolves outside the configured command roots.`)];
 }
 
 function isPathInsideWorkspace(
@@ -283,13 +275,10 @@ function isPathInsideWorkspace(
     if (!context.workspaceRoot || !context.cwd) {
         return !isObviousPathEscape(candidate, parsed);
     }
-    if (parsed.shellKind === 'posix' && isAbsolutePath(candidate, parsed)) {
-        return false;
-    }
-
     const resolved = resolveCandidatePath(candidate, context.cwd, parsed);
-    const workspaceRoot = path.resolve(path.normalize(context.workspaceRoot));
-    return isInsideDirectory(resolved, workspaceRoot);
+    const allowedRoots = [context.workspaceRoot, ...(context.allowedRoots ?? [])]
+        .map(root => path.resolve(path.normalize(root)));
+    return allowedRoots.some(root => isInsideDirectory(resolved, root));
 }
 
 function resolveCandidatePath(candidate: string, cwd: string, parsed: ParsedShellCommand): string {
@@ -325,18 +314,6 @@ function isRecursiveFlag(arg: string): boolean {
     return lower === '--recursive' || lower === '-recurse' || lower === '-recursive' || /^-[^-]*r/i.test(arg);
 }
 
-function isDangerousRemovalTarget(target: string): boolean {
-    const lower = target.toLowerCase();
-    const exactTargets = new Set(['/', '~', '.', '..', '*', './*', '/*', '~/*', '.git', '$pwd', '$home']);
-    return exactTargets.has(lower)
-        || lower.startsWith('../')
-        || lower.startsWith('..\\')
-        || lower.startsWith('$')
-        || lower.includes('/.git')
-        || lower.includes('\\.git')
-        || /^[a-z]:[\\/]*$/i.test(target);
-}
-
 function normalizePathCandidate(token: string): string {
     return token.trim().replace(/^file:\/\//i, '');
 }
@@ -345,6 +322,7 @@ function shouldSkipPathCandidate(candidate: string, parsed: ParsedShellCommand, 
     return candidate === ''
         || candidate === '-'
         || candidate === '--'
+        || isShellControlOption(candidate)
         || isNonFileUrl(candidate)
         || (mode === 'obvious' && !isObviousPathEscape(candidate, parsed));
 }
@@ -462,4 +440,4 @@ function isInsideDirectory(filePath: string, directory: string): boolean {
 }
 
 const blocked = (reason: string): CommandRiskIssue => ({ level: 'blocked', reason });
-const dangerous = (reason: string): CommandRiskIssue => ({ level: 'dangerous', reason });
+const requiresConfirmation = (reason: string): CommandRiskIssue => ({ level: 'requires_confirmation', reason });

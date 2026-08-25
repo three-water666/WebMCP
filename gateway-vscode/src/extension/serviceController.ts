@@ -7,6 +7,7 @@ import { filterCustomServers, type BuiltinServerConfig } from './customServers';
 import { getErrorMessage } from './errorUtils';
 import { updateGatewayStatusBar } from './statusBar';
 import type { AISiteConfig, ResolvedAiSiteConfig } from './types';
+import { resolveCommandAllowedRoots } from './commandAllowedRoots';
 
 export interface GatewayServiceSnapshot {
     currentPort: number | null;
@@ -59,7 +60,7 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
 
         const config = vscode.workspace.getConfiguration('webcodeGateway');
         const portConfig = config.get<number>('port') ?? 34567;
-        const commandShellPath = getCommandShellPath(config);
+        const commandConfig = getCommandExecutionConfig(config, options.outputChannel);
         const customServers = filterCustomServers(
             config.get<Record<string, BuiltinServerConfig>>('servers') ?? {},
             options.outputChannel
@@ -79,7 +80,7 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
                 allowedOrigins,
                 aiSites,
                 skillDirectories,
-                commandShellPath
+                ...commandConfig
             });
 
             currentPort = result.port;
@@ -141,6 +142,21 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
 function getCommandShellPath(config: vscode.WorkspaceConfiguration): string | undefined {
     const configuredCommandShellPath = config.get<string>('commandShell.path')?.trim();
     return configuredCommandShellPath === '' ? undefined : configuredCommandShellPath;
+}
+
+function getCommandExecutionConfig(
+    config: vscode.WorkspaceConfiguration,
+    outputChannel: vscode.OutputChannel
+): { commandAllowedRoots: string[]; commandShellPath?: string } {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    return {
+        commandShellPath: getCommandShellPath(config),
+        commandAllowedRoots: resolveCommandAllowedRoots(
+            config.get<string[]>('command.allowedRoots') ?? [],
+            workspaceRoot,
+            outputChannel
+        )
+    };
 }
 
 function hasWorkspaceFolder(): boolean {

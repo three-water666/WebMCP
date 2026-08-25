@@ -1,4 +1,4 @@
-export type CommandRiskLevel = 'allowed' | 'dangerous' | 'blocked';
+export type CommandRiskLevel = 'allowed' | 'requires_confirmation' | 'blocked';
 
 export interface CommandRiskAssessment {
     level: CommandRiskLevel;
@@ -8,6 +8,7 @@ export interface CommandRiskAssessment {
 export interface CommandRiskContext {
     workspaceRoot?: string;
     cwd?: string;
+    allowedRoots?: string[];
     platform?: NodeJS.Platform;
 }
 
@@ -18,11 +19,17 @@ export interface CommandRiskIssue {
 
 export function combineRiskIssues(issues: CommandRiskIssue[]): CommandRiskAssessment {
     const blocked = issues.filter(issue => issue.level === 'blocked').map(issue => issue.reason);
-    const dangerous = issues.filter(issue => issue.level === 'dangerous').map(issue => issue.reason);
-    const reasons = unique(blocked.length > 0 ? blocked : dangerous);
+    const confirmation = issues
+        .filter(issue => issue.level === 'requires_confirmation')
+        .map(issue => issue.reason);
+    const reasons = unique(blocked.length > 0 ? blocked : confirmation);
 
     return {
-        level: blocked.length > 0 ? 'blocked' : dangerous.length > 0 ? 'dangerous' : 'allowed',
+        level: blocked.length > 0
+            ? 'blocked'
+            : confirmation.length > 0
+                ? 'requires_confirmation'
+                : 'allowed',
         reasons
     };
 }

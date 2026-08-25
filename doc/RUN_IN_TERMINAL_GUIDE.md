@@ -22,7 +22,7 @@ bash.exe -lc "<command>"
 
 ### execute_command
 
-`execute_command` 用于后台执行短生命周期 POSIX/bash 命令，并直接返回 stdout、stderr 和 exitCode。它支持用 workspace 相对 `path` 指定执行目录，默认 `.`。
+`execute_command` 用于后台执行短生命周期命令，并直接返回 stdout、stderr 和 exitCode。它支持用 workspace 相对 `path` 指定执行目录，默认 `.`；也可以用 `profile` 选择已发现的 Git Bash、PowerShell 或 POSIX shell。省略 `profile` 时保留原有 POSIX/Git Bash 行为。
 
 适合：
 
@@ -70,6 +70,8 @@ bash.exe -lc "<command>"
 
 扩展内部会把 `path` 解析为 VS Code 终端或子进程需要的真实目录，但工具入参和 `run_in_terminal`、`terminal_session` 返回的 session summary 只暴露 workspace 相对 `path`。
 
+命令文本中的文件参数采用另一套策略：workspace 内路径默认允许；workspace 外字面量路径和无法静态确认的动态路径需要逐次审批。用户可以通过 `webcodeGateway.command.allowedRoots` 增加可信绝对目录，支持 `~` 和 `${workspaceFolder}`。外部递归删除、系统级 PowerShell provider 等高风险目标仍会拒绝。
+
 ## 运行模型
 
 优化后，`run_in_terminal` 不再创建伪终端，而是使用 VS Code 真实集成终端：
@@ -104,7 +106,7 @@ terminal.sendText(commandLine, true);
 
 ## Terminal profile 选择
 
-`run_in_terminal` 增加 `profile` 参数，用于选择执行命令的终端类型：
+`run_in_terminal` 和 `execute_command` 都支持 `profile` 参数，用于选择执行命令的 shell 类型：
 
 ```json
 {
@@ -126,7 +128,7 @@ terminal.sendText(commandLine, true);
 
 ## profile 发现与去重
 
-工具列表初始化时，浏览器插件会调用 `list_tools`。网关会在这一步动态生成 `run_in_terminal` 的工具描述，把当前环境检测到的 profile 写进 description 和字段说明里。
+工具列表初始化时，浏览器插件会调用 `list_tools`。网关会在这一步动态生成 `run_in_terminal` 和 `execute_command` 的工具描述，把当前环境检测到的 profile 写进 description 和字段说明里。
 
 来源优先级：
 
@@ -255,36 +257,30 @@ terminal.sendText('\x03', false);
 
 ## 安全策略
 
-`run_in_terminal` 支持多种 shell 后，命令校验也按 shell 类型分流。
+Gateway 是命令风险判断的权威入口。浏览器在执行命令前调用预检接口，风险分为三级：
 
-POSIX profile 继续复用原有 POSIX/bash 风险策略，包括：
+| 等级 | 行为 | 示例 |
+| --- | --- | --- |
+| `allowed` | 按普通工具授权规则执行 | 构建、测试、只读 git、workspace 内常规命令 |
+| `requires_confirmation` | 即使启用自动批准也必须逐次确认 | inline eval、嵌套 shell、递归删除、破坏性 git、动态路径、workspace 外路径 |
+| `blocked` | 不提供继续执行入口 | 提权、下载后管道进入 shell、编码 PowerShell、删除 workspace 根或 `.git`、系统管理命令 |
 
-- 阻止提权命令，例如 `sudo`、`su`。
-- 阻止管道进入 shell 解释器，例如 `curl ... | bash`。
-- 拦截明显危险的递归删除，例如 `rm -rf .`、`rm -rf /`、`rm -rf .git`。
-- 拦截危险 git 操作，例如 `git reset --hard`、`git clean -fdx`、`git push --force`。
-- 拦截部分解释器 inline eval，例如 `node -e`、`python -c`。
+必须确认的命令采用一次性 challenge。用户批准后，Gateway 签发短期单次凭据；凭据绑定工具名、原始命令、执行目录和 shell profile，不能用于另一条命令或重复使用。永久命令授权同样绑定执行目录和 profile，复合命令不能按宽泛前缀授权。
 
-PowerShell profile 使用独立策略，包括：
+POSIX 和 PowerShell 使用结构化词法解析识别顶层命令、连接符、管道和字面量嵌套 shell。字面量嵌套命令会递归评估，例如普通 `bash -c` 需要确认，但 `bash -c 'rm -rf .'` 会直接拒绝。动态命令替换、PowerShell script block、动态调用和 .NET 静态调用会升级为逐次确认。
 
-- 阻止 `Invoke-Expression` / `iex`。
-- 阻止 `Invoke-WebRequest ... | iex` 这类下载后执行模式。
-- 阻止嵌套 PowerShell 命令求值，例如 `pwsh -Command ...`。
-- 拦截危险的 `Remove-Item -Recurse` 目标，例如 `.`, `..`, `.git`, `$HOME`, 盘符根目录。
-- 拦截危险系统命令，例如 `diskpart`、`format`、`reg`、`sc`、`netsh`、`shutdown`。
-- 复用 git 危险操作判断。
+PowerShell 另外拒绝 `Invoke-Expression`、encoded command、非文件系统 provider 和系统管理命令。后台 PowerShell profile 使用 `-NoProfile -NonInteractive`，降低用户 profile、alias 和交互提示带来的不确定性。
 
-第一版保持保守：`dangerous` 和 `blocked` 都会拒绝执行，不引入交互审批。
+这些检查是风险防护，不是操作系统沙箱。脚本、包管理器生命周期、编译器和 workspace 内程序仍可能访问其进程权限允许的资源；如果需要严格文件系统隔离，需要单独的容器或 OS sandbox 执行模式。
 
 ## 与 execute_command 的边界
-
-当前没有扩大 `execute_command` 的 shell 范围。原因是 `execute_command` 是后台执行工具，确定性和可采集性要求更高。
 
 当前边界：
 
 - 短命令、构建、测试优先使用 `execute_command`。
 - 常驻命令、可见输出、交互式流程使用 `run_in_terminal`。
-- PowerShell/pwsh 场景只通过 `run_in_terminal` 支持。
+- `execute_command` 可显式选择 PowerShell profile；该模式不加载用户 profile，并保持非交互执行。
+- `run_in_terminal` 使用真实 VS Code 终端，适合依赖用户终端环境的流程。
 
 ## 已知边界
 

@@ -9,7 +9,7 @@
 - 安装 [VS Code](https://code.visualstudio.com/) 1.106.1 或更新版本。
 - 在 VS Code 中打开一个本地项目文件夹或工作区，不要只打开单个文件。
 - 默认浏览器模式是 Edge 独立保活模式，不需要手动安装浏览器插件；Windows 通常自带 Edge，macOS 需要先安装 [Microsoft Edge](https://www.microsoft.com/edge/download)。
-- Windows 需要安装 [Git for Windows](https://git-scm.com/download/win)，并保留 Git Bash；如果 Git Bash 在自定义路径，可以把 `webcodeGateway.commandShell.path` 指向 `bash.exe`。
+- Windows 上 `execute_command` 的默认 POSIX 模式需要 Git Bash；如果 Git Bash 在自定义路径，可以把 `webcodeGateway.commandShell.path` 指向 `bash.exe`。也可以显式选择检测到的 `pwsh` 或 `powershell` profile 执行 PowerShell 命令。
 - 准备好目标网页 AI 账号，并确认当前网络能访问对应站点。首次打开独立 Edge profile 时需要登录一次。
 
 ## 网页输出 `@webcode` 或 `/webcode` 没反应怎么办？

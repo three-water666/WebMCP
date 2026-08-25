@@ -21,7 +21,7 @@ export function assertTerminalCommandRiskAllowed(
     context: CommandRiskContext = {}
 ): void {
     const assessment = assessTerminalCommandRisk(command, shellKind, context);
-    if (assessment.level !== 'allowed') {
+    if (assessment.level === 'blocked') {
         throw new CommandRiskError(assessment);
     }
 }

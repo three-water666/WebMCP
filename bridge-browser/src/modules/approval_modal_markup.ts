@@ -8,6 +8,7 @@ export type ApprovalModalContent = {
   safeArgs: string;
   safeName: string;
   safePurpose: string;
+  safeRiskReasons: string[];
 };
 
 export type CommandApprovalOptions = {
@@ -48,12 +49,22 @@ export const APPROVAL_MODAL_STYLE = `
           .approval-option code { display: block; margin-top: 6px; padding: 8px; border-radius: 6px; background: #eef2f7; color: #1d4ed8; word-break: break-all; }
           .approval-option button { margin-top: 10px; width: 100%; }
           .scope-warning { color: #b45309; font-size: 12px; font-weight: 600; margin-top: 8px; }
+          .risk-reasons { border: 1px solid #f59e0b; background: #fff7ed; color: #92400e; }
+          .risk-reasons ul { margin: 0; padding-left: 20px; }
+          .risk-reasons li + li { margin-top: 6px; }
           button:disabled { cursor: not-allowed; opacity: 0.65; transform: none; box-shadow: none; }
           input.reason { width: 100%; box-sizing: border-box; padding: 10px; margin-top: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; display: none; }
           input.reason:focus { outline: none; border-color: #dc3545; }
       `;
 
 export function renderApprovalModalHtml(content: ApprovalModalContent): string {
+  const riskHtml = content.safeRiskReasons.length > 0
+    ? `
+              <div class="field">
+                  <span class="label">${t("label_risk")}</span>
+                  <div class="value risk-reasons"><ul>${content.safeRiskReasons.map(reason => `<li>${reason}</li>`).join("")}</ul></div>
+              </div>`
+    : "";
   return `
           <h2><span class="warn-icon">✋</span> ${t("hitl_title")}</h2>
 
@@ -70,6 +81,7 @@ export function renderApprovalModalHtml(content: ApprovalModalContent): string {
                   <span class="label">${t("label_args")}</span>
                   <div class="value">${content.safeArgs}</div>
               </div>
+              ${riskHtml}
           </div>
 
           <div id="view-always-confirm" style="display:none; padding: 15px 0; text-align: center;">

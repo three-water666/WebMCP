@@ -4,9 +4,6 @@ import type { ParsedShellCommand, ParsedShellSegment } from './shellCommandParse
 const POSIX_BLOCKED_COMMANDS = new Map<string, string>([
     ['sudo', 'Privilege escalation with sudo is not allowed.'],
     ['su', 'Privilege escalation with su is not allowed.'],
-    ['cmd', 'cmd.exe is not allowed; use POSIX shell syntax.'],
-    ['powershell', 'PowerShell is not allowed; use POSIX shell syntax.'],
-    ['pwsh', 'PowerShell is not allowed; use POSIX shell syntax.'],
     ['shutdown', 'System shutdown commands are not allowed.'],
     ['reboot', 'System reboot commands are not allowed.'],
     ['halt', 'System shutdown commands are not allowed.'],
@@ -21,8 +18,6 @@ const POSIX_BLOCKED_COMMANDS = new Map<string, string>([
 ]);
 
 const POWERSHELL_BLOCKED_COMMANDS = new Map<string, string>([
-    ['cmd', 'cmd.exe is not allowed from PowerShell terminal commands.'],
-    ['cmd.exe', 'cmd.exe is not allowed from PowerShell terminal commands.'],
     ['diskpart', 'Disk partitioning commands are not allowed.'],
     ['format', 'Disk formatting commands are not allowed.'],
     ['reg', 'Windows registry commands are not allowed.'],
@@ -41,6 +36,7 @@ const POWERSHELL_BLOCKED_COMMANDS = new Map<string, string>([
 
 const POSIX_SHELL_COMMANDS = new Set(['bash', 'sh', 'zsh', 'fish']);
 const POWERSHELL_COMMANDS = new Set(['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe']);
+const CMD_COMMANDS = new Set(['cmd', 'cmd.exe']);
 const POWERSHELL_EVAL_COMMANDS = new Set(['invoke-expression', 'iex']);
 
 const POSIX_INTERPRETER_EVAL_FLAGS = new Map<string, string[]>([
@@ -66,7 +62,31 @@ const POWERSHELL_INTERPRETER_EVAL_FLAGS = new Map<string, string[]>([
 ]);
 
 export function assessCommandPolicy(parsed: ParsedShellCommand): CommandRiskIssue[] {
-    return parsed.segments.flatMap(segment => assessSegmentPolicy(parsed, segment));
+    return [
+        ...assessDynamicSyntaxPolicy(parsed),
+        ...parsed.segments.flatMap(segment => assessSegmentPolicy(parsed, segment))
+    ];
+}
+
+function assessDynamicSyntaxPolicy(parsed: ParsedShellCommand): CommandRiskIssue[] {
+    const command = parsed.segments.map(segment => segment.raw).join(' ');
+    if (parsed.shellKind === 'posix' && (/\$\(/.test(command) || /`[^`]+`/.test(command))) {
+        return [requiresConfirmation('POSIX command substitution requires explicit approval.')];
+    }
+
+    if (parsed.shellKind === 'powershell' && hasDynamicPowerShellSyntax(command)) {
+        return [requiresConfirmation('Dynamic PowerShell syntax requires explicit approval.')];
+    }
+
+    return [];
+}
+
+function hasDynamicPowerShellSyntax(command: string): boolean {
+    return /(?:^|\s)&\s*\$/m.test(command)
+        || /\$\(/.test(command)
+        || /(?:^|[;|]\s*)[&.]?\s*\{/m.test(command)
+        || /\[[^\]]+\]::/.test(command)
+        || /(?:^|\s)@[A-Za-z_][A-Za-z0-9_]*/.test(command);
 }
 
 function assessSegmentPolicy(parsed: ParsedShellCommand, segment: ParsedShellSegment): CommandRiskIssue[] {
@@ -135,15 +155,30 @@ function assessPowerShellSegmentPolicy(segment: ParsedShellSegment): CommandRisk
 
 function assessNestedPosixShell(segment: ParsedShellSegment): CommandRiskIssue | null {
     if (POSIX_SHELL_COMMANDS.has(segment.commandName) && hasShellEvalFlag(segment.args)) {
-        return blocked(`Nested shell evaluation with ${segment.commandName} -c is not allowed.`);
+        return requiresConfirmation(`Nested shell evaluation with ${segment.commandName} requires explicit approval.`);
+    }
+    if (POWERSHELL_COMMANDS.has(segment.commandName) && hasEncodedPowerShellCommandFlag(segment.args)) {
+        return blocked(`Encoded PowerShell evaluation with ${segment.commandName} is not allowed.`);
+    }
+    if (POWERSHELL_COMMANDS.has(segment.commandName) && hasPowerShellCommandFlag(segment.args)) {
+        return requiresConfirmation(`Nested PowerShell evaluation with ${segment.commandName} requires explicit approval.`);
+    }
+    if (CMD_COMMANDS.has(segment.commandName) && hasCmdCommandFlag(segment.args)) {
+        return requiresConfirmation('Nested cmd.exe evaluation requires explicit approval.');
     }
 
     return null;
 }
 
 function assessNestedPowerShell(segment: ParsedShellSegment): CommandRiskIssue | null {
+    if (POWERSHELL_COMMANDS.has(segment.commandName) && hasEncodedPowerShellCommandFlag(segment.args)) {
+        return blocked(`Encoded PowerShell evaluation with ${segment.commandName} is not allowed.`);
+    }
     if (POWERSHELL_COMMANDS.has(segment.commandName) && hasPowerShellCommandFlag(segment.args)) {
-        return blocked(`Nested PowerShell command evaluation with ${segment.commandName} is not allowed.`);
+        return requiresConfirmation(`Nested PowerShell evaluation with ${segment.commandName} requires explicit approval.`);
+    }
+    if (CMD_COMMANDS.has(segment.commandName) && hasCmdCommandFlag(segment.args)) {
+        return requiresConfirmation('Nested cmd.exe evaluation requires explicit approval.');
     }
 
     return null;
@@ -154,13 +189,13 @@ function assessSharedCommandPolicy(commandName: string, args: string[]): Command
         return assessGit(args);
     }
     if (commandName === 'find' && args.includes('-delete')) {
-        return [dangerous('find -delete can remove many files and is not allowed.')];
+        return [requiresConfirmation('find -delete can remove multiple files.')];
     }
     if (commandName === 'chmod' && hasRecursiveFlag(args) && args.includes('777')) {
-        return [dangerous('Recursive chmod 777 is not allowed.')];
+        return [requiresConfirmation('Recursive chmod 777 changes permissions for multiple files.')];
     }
     if (commandName === 'chown' && hasRecursiveFlag(args)) {
-        return [dangerous('Recursive chown is not allowed.')];
+        return [requiresConfirmation('Recursive chown changes ownership for multiple files.')];
     }
 
     return [];
@@ -169,13 +204,13 @@ function assessSharedCommandPolicy(commandName: string, args: string[]): Command
 function assessGit(args: string[]): CommandRiskIssue[] {
     const subcommand = args[0]?.toLowerCase();
     if (subcommand === 'reset' && args.some(arg => arg.toLowerCase() === '--hard')) {
-        return [dangerous('git reset --hard is not allowed.')];
+        return [requiresConfirmation('git reset --hard can discard uncommitted changes.')];
     }
     if (subcommand === 'clean' && hasCombinedFlags(args, ['f', 'd', 'x'])) {
-        return [dangerous('git clean -fdx is not allowed.')];
+        return [requiresConfirmation('git clean -fdx can permanently remove untracked and ignored files.')];
     }
     if (subcommand === 'push' && args.some(isForcePushFlag)) {
-        return [dangerous('Force-pushing with git push is not allowed.')];
+        return [requiresConfirmation('Force-pushing can overwrite remote branch history.')];
     }
 
     return [];
@@ -191,7 +226,7 @@ function assessInterpreterEval(
         return [];
     }
 
-    return [dangerous(`Inline code execution with ${commandName} is not allowed.`)];
+    return [requiresConfirmation(`Inline code execution with ${commandName} requires explicit approval.`)];
 }
 
 function hasRecursiveFlag(args: string[]): boolean {
@@ -212,16 +247,25 @@ function hasShellEvalFlag(args: string[]): boolean {
 }
 
 function hasPowerShellCommandFlag(args: string[]): boolean {
-    return args.some(arg => {
-        const lower = arg.toLowerCase();
-        return lower === '-command'
-            || lower === '-c'
-            || lower === '/c'
-            || lower === '-encodedcommand'
-            || lower === '-enc'
-            || lower === '/encodedcommand'
-            || lower === '/enc';
-    });
+    return args.some(arg => matchesPowerShellSwitch(arg, 'command'));
+}
+
+function hasEncodedPowerShellCommandFlag(args: string[]): boolean {
+    return args.some(arg => matchesPowerShellSwitch(arg, 'encodedcommand'));
+}
+
+function matchesPowerShellSwitch(arg: string, fullName: string): boolean {
+    const lower = arg.toLowerCase();
+    if (!lower.startsWith('-') && !lower.startsWith('/')) {
+        return false;
+    }
+
+    const switchName = lower.slice(1).split(':', 1)[0];
+    return switchName.length > 0 && fullName.startsWith(switchName);
+}
+
+function hasCmdCommandFlag(args: string[]): boolean {
+    return args.some(arg => arg.toLowerCase() === '/c');
 }
 
 function isForcePushFlag(arg: string): boolean {
@@ -233,6 +277,6 @@ function blocked(reason: string): CommandRiskIssue {
     return { level: 'blocked', reason };
 }
 
-function dangerous(reason: string): CommandRiskIssue {
-    return { level: 'dangerous', reason };
+function requiresConfirmation(reason: string): CommandRiskIssue {
+    return { level: 'requires_confirmation', reason };
 }
