@@ -89,6 +89,52 @@
                 "default": "default",
                 "description": "Specific browser for this site (overrides global setting). Use user-profile-chrome or user-profile-edge to launch the normal profile and try to apply anti-freeze flags. Use isolated-chrome or isolated-edge to launch a dedicated profile with the bridge extension and anti-freeze flags."
               },
+              "capture": {
+                "type": "object",
+                "description": "Optional browser response capture configuration. Parser implementations remain bundled with webcode.",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "strategy": {
+                    "type": "string",
+                    "enum": [
+                      "network-preferred"
+                    ]
+                  },
+                  "transport": {
+                    "type": "string",
+                    "enum": [
+                      "fetch-sse"
+                    ]
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "GET",
+                      "POST"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Exact response endpoint; query parameters are ignored when matching."
+                  },
+                  "adapter": {
+                    "type": "string",
+                    "enum": [
+                      "chatgpt-delta-v1"
+                    ]
+                  },
+                  "channels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                }
+              },
               "selectors": {
                 "type": "object",
                 "description": "DOM selectors for this AI site. Leave empty to use defaults for known sites.",

@@ -15,6 +15,7 @@ Resolved VS Code site shape:
   address: string;
   showQuickLaunch?: boolean;
   browser?: string;
+  capture?: SiteNetworkCaptureConfig;
   selectors: SiteSelectors;
 }
 ```
@@ -25,6 +26,7 @@ Browser `/v1/init` receives `syncedAiSites` in this narrower shape:
 {
   id: string;
   name: string;
+  capture?: SiteNetworkCaptureConfig;
   selectors: SiteSelectors;
 }
 ```
@@ -50,6 +52,12 @@ Field responsibilities:
 - `selectors`
   - DOM selectors required by the browser content script.
 
+- `capture`
+  - Optional network-response capture for tool calls that are absent from or collapsed in the DOM.
+  - `/v1/init` syncs the declaration, but it can only select transports, strategies, and adapters
+    bundled with the extension. It cannot download or execute parser code.
+  - Selectors remain necessary for delivering tool results and submitting the follow-up message.
+
 Each connected tab stores a browser session:
 
 ```ts
@@ -74,7 +82,7 @@ Rules:
 
 - Built-in sites are loaded first.
 - User entries with `id` match built-in sites by `id`.
-- Matching entries override configurable fields; `selectors` are merged field by field.
+- Matching entries override configurable fields; `selectors` and `capture` are merged field by field.
 - Entries without `id` can still match built-ins by `name` for compatibility with older configs.
 - Unknown `id` values add custom sites.
 - Custom sites must provide complete `selectors`.
@@ -174,7 +182,7 @@ Custom sites do not inherit defaults, so the selector set must be complete.
 6. If the versions match, the handshake stores `siteId`, `targetOrigin`, and `targetUrl` in `session_<tabId>`.
 7. The background script fetches `/v1/init` and writes prompts plus `syncedAiSites` to `chrome.storage.local`.
 8. The target page content script calls `GET_STATUS` to get `siteId`.
-9. The content script uses `siteId` to find selectors in `syncedAiSites`.
+9. The content script uses `siteId` to find selectors and optional capture settings in `syncedAiSites`.
 
 This avoids URL guessing in the content script and avoids a race where URL safety depends on `/v1/init` finishing first. It also prevents sessions from being removed just because config has not synced yet; if the current URL is unsafe, page capabilities are paused and resume after the tab returns to a safe URL.
 
@@ -200,6 +208,61 @@ Selector tips:
 - Test idle and generating states.
 - Check login redirects, new conversations, and existing conversations.
 
+## Network Response Capture
+
+Network capture runs alongside the existing DOM scanner. The built-in ChatGPT configuration matches the
+EventStream returned by `POST https://chatgpt.com/backend-api/f/conversation` and uses the
+`chatgpt-delta-v1` adapter to reconstruct `commentary` messages:
+
+This path requires Chromium 111 or later for the static `MAIN`-world content script.
+
+```json
+{
+  "capture": {
+    "enabled": true,
+    "strategy": "network-preferred",
+    "transport": "fetch-sse",
+    "method": "POST",
+    "url": "https://chatgpt.com/backend-api/f/conversation",
+    "adapter": "chatgpt-delta-v1",
+    "channels": ["commentary"]
+  }
+}
+```
+
+Runtime rules:
+
+- A main-world script wraps `window.fetch` at `document_start`. The site receives the untouched original
+  `Response`; the extension reads only a clone.
+- Only the configured URL, HTTP method, and `text/event-stream` responses match. URL query parameters are
+  ignored during matching.
+- The adapter reconstructs deltas across SSE chunks, including tool-call JSON split across chunks.
+- Tool calls are committed only after the response and protocol complete successfully. Incomplete, failed,
+  or removed messages are discarded.
+- Once a network turn starts, DOM capture for that turn is suppressed to avoid duplicate execution. A miss
+  or capture failure falls back to the DOM path.
+- A per-page random token correlates and filters messages between the page and isolated content script. Only
+  extracted tool-call JSON candidates cross that boundary.
+- Raw streams, hidden commentary text, request headers, and credentials are not sent to the content script or
+  gateway and are not persisted.
+
+`capture` is declarative rather than a general network script. Supporting another stream protocol requires
+shipping an adapter in the browser extension before selecting its name in platform configuration. Disable
+the built-in ChatGPT capture temporarily with this override:
+
+```json
+{
+  "webcodeGateway.aiSites": [
+    {
+      "id": "chatgpt",
+      "capture": {
+        "enabled": false
+      }
+    }
+  ]
+}
+```
+
 ## Verification
 
 Recommended commands:
@@ -217,8 +280,10 @@ Manual checks:
 1. Launch the site from VS Code.
 2. Confirm the bridge redirects successfully.
 3. Confirm `session_<tabId>` has `siteId`, `targetOrigin`, and `targetUrl`.
-4. Confirm `/v1/init` sends only `id/name/selectors` for `syncedAiSites`.
-5. Verify tool-call capture, result delivery, and auto-send.
+4. Confirm `/v1/init` sends only `id/name/selectors` and optional `capture` for `syncedAiSites`.
+5. On capture-enabled sites, verify complete hidden or withdrawn calls are captured and failed streams do not run.
+6. Verify DOM calls are not executed a second time through network capture.
+7. Verify tool-result delivery and auto-send.
 
 ## Common Pitfalls
 

@@ -24,3 +24,4 @@ skills-lock.json
 .vscode-test
 /evals/runs/
 /evals/live-profiles/
+/bridge-browser/public/generated/

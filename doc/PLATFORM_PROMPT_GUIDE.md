@@ -38,6 +38,7 @@ webcode 的公共初始化提示词已经说明了本地 VS Code 工具、工具
 {
   id: string;
   name: string;
+  capture?: SiteNetworkCaptureConfig;
   selectors: SiteSelectors;
 }
 ```
@@ -49,7 +50,8 @@ webcode 的公共初始化提示词已经说明了本地 VS Code 工具、工具
 - `browser`
 - `platformId`
 
-这些字段要么属于 VS Code 启动行为，要么已经被 `id/siteId` 取代。
+这些字段要么属于 VS Code 启动行为，要么已经被 `id/siteId` 取代。可选 `capture` 会下发，
+用于选择浏览器扩展内置的网络响应解析器；它不是远端代码。
 
 ## 相关文件
 
@@ -109,6 +111,7 @@ platform_prompt_chatgpt_zh
 {
   id,
   name,
+  capture,
   selectors
 }
 ```
@@ -117,7 +120,8 @@ platform_prompt_chatgpt_zh
 
 [bridge-browser/src/content/main.ts](../bridge-browser/src/content/main.ts)
 
-这里通过 `GET_STATUS` 读取当前 tab session 的 `siteId`，再用 `siteId` 从 `syncedAiSites` 中找到 selectors。
+这里通过 `GET_STATUS` 读取当前 tab session 的 `siteId`，再用 `siteId` 从 `syncedAiSites` 中找到
+selectors 和可选 capture 配置。
 
 [bridge-browser/src/content/prompt_resources.ts](../bridge-browser/src/content/prompt_resources.ts)
 
@@ -150,6 +154,15 @@ Gateway `/v1/init` 返回的数据形如：
     {
       "id": "chatgpt",
       "name": "ChatGPT",
+      "capture": {
+        "enabled": true,
+        "strategy": "network-preferred",
+        "transport": "fetch-sse",
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/f/conversation",
+        "adapter": "chatgpt-delta-v1",
+        "channels": ["commentary"]
+      },
       "selectors": {}
     }
   ],
