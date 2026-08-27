@@ -9,6 +9,18 @@ Select the sections that match the change. Adapt exact actions to current site s
 - Confirm the browser popup reports the expected bridge/session connection.
 - Check page errors, relevant console warnings, and unexpected failed requests before the flow.
 
+## Fixed coding scenario review
+
+- Select a scenario whose fixture and required behavior overlap the feature under test; do not use
+  a harder task merely to make the run look more realistic.
+- Read the copied task with `qa:ctl task` and send only that prompt to the model.
+- Observe how the model discovers files, invokes tools, handles approval and result delivery, and
+  recovers from ambiguity. Intervene only as a tester would for login, risk review, or site failure.
+- Compare the final conversation, `qa:ctl review`, changed file contents, VS Code state, and any
+  scenario-specific tests. Use the hidden grader only as an additional correctness signal.
+- Give an agent-owned verdict across task correctness, tool discipline, recovery, UI clarity, and
+  friction. Attribute failures separately to model, site, bridge, Gateway, VS Code, or scenario.
+
 ## Initialization and popup
 
 - On a fresh conversation, type an ordinary first message and press Enter.

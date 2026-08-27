@@ -7,6 +7,7 @@ import process from 'node:process';
 import {
   evalsRoot,
   findAvailablePort,
+  readJson,
   repoRoot,
   requestControl,
   runPlaywright,
@@ -17,15 +18,14 @@ import {
   writeJson,
 } from './qa-common.mjs';
 import { resolveBrowserPath, resolveVsCodePath } from './runtime-paths.mjs';
+import { findAgentScenario, prepareAgentScenario } from './agent-scenario-lib.mjs';
 
 const require = createRequire(import.meta.url);
 const { loadScenario } = require('../out/harness/scenario.js');
 const { prepareEvalRun } = require('../out/harness/runWorkspace.js');
 
-const siteId = readSiteId(process.argv.slice(2));
-const scenarioPath = path.join(evalsRoot, 'scenarios', 'minimal-tool-loop', 'scenario.json');
-const scenario = await loadScenario(scenarioPath);
-const run = await prepareEvalRun(evalsRoot, scenario);
+const { siteId, scenarioId } = readArguments(process.argv.slice(2));
+const { run, scenario } = await prepareScenario(scenarioId);
 const browserPath = resolveBrowserPath();
 const vscodePath = resolveVsCodePath();
 const gatewayPort = await findAvailablePort(Array.from({ length: 10 }, (_, index) => 34567 + index));
@@ -49,11 +49,20 @@ const sessions = {
 
 await fs.mkdir(logsDirectory, { recursive: true });
 await fs.mkdir(artifactsDirectory, { recursive: true });
+await prepareVsCodeUserData();
+const preparedManifest = await readJson(run.runManifestPath).catch(() => ({}));
 await writeJson(run.runManifestPath, {
+  ...preparedManifest,
   schemaVersion: 1,
   kind: 'interactive-qa',
   runId: run.runId,
   scenarioId: scenario.id,
+  scenarioKind: scenario.kind,
+  scenarioTitle: scenario.title,
+  ...(scenario.kind === 'agent-eval'
+    ? { category: scenario.category, difficulty: scenario.difficulty }
+    : {}),
+  fixturePath: scenario.fixturePath,
   siteId,
   status: 'starting',
   startedAt,
@@ -75,6 +84,11 @@ try {
     control: { port: control.port, token },
     processes: { vscodeTestCli: vscodeProcessId },
   });
+  const initialFile = await findInitialWorkspaceFile(run.workspacePath);
+  if (initialFile) {
+    await requestControl(manifest, 'vscode.openFile', { path: initialFile });
+    manifest = await updateRunManifest(run.runDirectory, { initialFile });
+  }
   const site = await requestControl(manifest, 'site.start', { siteId });
   const browserProcessId = startBrowserHost(site.bridgeUrl, site.site.address);
   const browserHost = await waitForJson(browserReadyPath, 120_000);
@@ -146,6 +160,9 @@ function startVsCodeHost() {
     WEBCODE_QA_CONTROL_TOKEN: token,
     WEBCODE_QA_GATEWAY_PORT: String(gatewayPort),
     WEBCODE_QA_VSCODE_CDP_PORT: String(vscodeCdpPort),
+    ...(run.gatewayConfigPath
+      ? { WEBCODE_QA_GATEWAY_CONFIG_PATH: run.gatewayConfigPath }
+      : {}),
   };
   return spawnDetachedNode(vscodeTestCliPath, [
     '--config',
@@ -154,6 +171,14 @@ function startVsCodeHost() {
     env,
     stdoutPath: path.join(logsDirectory, 'vscode.stdout.log'),
     stderrPath: path.join(logsDirectory, 'vscode.stderr.log'),
+  });
+}
+
+async function prepareVsCodeUserData() {
+  const userDirectory = path.join(run.runDirectory, 'vscode-user-data', 'User');
+  await fs.mkdir(userDirectory, { recursive: true });
+  await writeJson(path.join(userDirectory, 'settings.json'), {
+    'git.openRepositoryInParentFolders': 'never',
   });
 }
 
@@ -241,16 +266,55 @@ async function findDistinctPort(excluded) {
   throw new Error('Could not reserve distinct QA control ports.');
 }
 
-function readSiteId(args) {
+function readArguments(args) {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log('Usage: pnpm qa:start [chatgpt|deepseek|site-id]');
+    console.log('Usage: pnpm qa:start [chatgpt|deepseek|site-id] [agent-scenario-id]');
     process.exit(0);
   }
-  const value = args[0]?.trim() || 'chatgpt';
-  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(value)) {
-    throw new Error(`Invalid site id: ${value}`);
+  const siteId = args[0]?.trim() || 'chatgpt';
+  const scenarioId = args[1]?.trim() || 'minimal-tool-loop';
+  for (const [label, value] of [['site', siteId], ['scenario', scenarioId]]) {
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(value)) {
+      throw new Error(`Invalid ${label} id: ${value}`);
+    }
   }
-  return value;
+  if (args.length > 2) {
+    throw new Error('qa:start accepts at most a site id and an agent scenario id.');
+  }
+  return { siteId, scenarioId };
+}
+
+async function prepareScenario(scenarioId) {
+  if (scenarioId !== 'minimal-tool-loop') {
+    const scenario = await findAgentScenario(evalsRoot, scenarioId);
+    return { scenario, run: await prepareAgentScenario(evalsRoot, scenario) };
+  }
+  const scenarioPath = path.join(evalsRoot, 'scenarios', scenarioId, 'scenario.json');
+  const scenario = await loadScenario(scenarioPath);
+  return { scenario, run: await prepareEvalRun(evalsRoot, scenario) };
+}
+
+async function findInitialWorkspaceFile(workspacePath) {
+  const files = await collectWorkspaceFiles(workspacePath);
+  const preferredExtensions = new Set([
+    '.c', '.cpp', '.cs', '.css', '.go', '.html', '.java', '.js', '.jsx', '.json', '.mjs',
+    '.php', '.py', '.rb', '.rs', '.ts', '.tsx', '.vue',
+  ]);
+  return files.find(file => preferredExtensions.has(path.extname(file).toLowerCase())) ?? files[0];
+}
+
+async function collectWorkspaceFiles(workspacePath, directory = workspacePath) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const absolutePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await collectWorkspaceFiles(workspacePath, absolutePath));
+    } else if (entry.isFile()) {
+      files.push(path.relative(workspacePath, absolutePath));
+    }
+  }
+  return files;
 }
 
 function sanitizeSegment(value) {
@@ -260,10 +324,15 @@ function sanitizeSegment(value) {
 function printReady(manifest) {
   console.log(`Interactive QA session ready: ${manifest.runId}`);
   console.log(`Site: ${manifest.siteId}`);
+  console.log(`Scenario: ${manifest.scenarioId} (${manifest.scenarioTitle})`);
   console.log(`Workspace: ${manifest.workspacePath}`);
   console.log(`Run artifacts: ${run.runDirectory}`);
   console.log(`Browser: pnpm qa:pw ${manifest.runId} browser snapshot`);
   console.log(`VS Code: pnpm qa:pw ${manifest.runId} vscode snapshot`);
   console.log(`State: pnpm qa:ctl ${manifest.runId} status`);
+  if (manifest.taskPath) {
+    console.log(`Task: pnpm qa:ctl ${manifest.runId} task`);
+  }
+  console.log(`Review: pnpm qa:ctl ${manifest.runId} review`);
   console.log(`Stop: pnpm qa:stop ${manifest.runId}`);
 }

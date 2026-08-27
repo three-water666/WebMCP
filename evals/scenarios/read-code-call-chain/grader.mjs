@@ -23,7 +23,7 @@ export async function grade({ workspacePath }) {
     check(
       'unknown-region',
       15,
-      answer?.unknownRegionBehavior === 'Unsupported region: <region>',
+      matchesUnknownRegion(answer?.unknownRegionBehavior),
       'unsupported-region behavior is exact'
     ),
   ]);
@@ -34,5 +34,11 @@ function matchesDiscountRule(value) {
 }
 
 function matchesTaxRounding(value) {
-  return typeof value === 'string' && /nearest cent/i.test(value) && /regional rate/i.test(value);
+  return typeof value === 'string'
+    && /nearest cent|two decimal places/i.test(value);
+}
+
+function matchesUnknownRegion(value) {
+  return typeof value === 'string'
+    && value.replace(/\$\{region\}|<region>/g, '<region>') === 'Unsupported region: <region>';
 }

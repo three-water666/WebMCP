@@ -4,13 +4,16 @@
 
 ```text
 pnpm qa:start chatgpt
+pnpm qa:start deepseek read-code-call-chain
 pnpm qa:status <run>
 pnpm qa:stop <run>
 ```
 
 `qa:start` builds the bridge and VS Code extension, copies the deterministic fixture to an
 isolated workspace, starts the Extension Host and Gateway, opens a persistent site profile with
-the built bridge, and attaches Playwright CLI sessions for the browser and VS Code Workbench.
+the built bridge, opens a source file in the Workbench, and attaches Playwright CLI sessions for
+the browser and VS Code Workbench. The optional second argument selects any `agent-eval` scenario
+under `evals/scenarios`; without it, the minimal bridge fixture is used.
 VS Code user data and extensions are isolated inside the run. `qa:status` reports `degraded` if a
 host process or the authenticated control channel disappears while the manifest still says running.
 
@@ -47,14 +50,17 @@ pnpm qa:pw <run> browser snapshot
 ```
 
 The helper keeps the AI target active, reloads the extension page, and returns both target details
-and popup text. Use `tab-list` and `tab-select` to move between the AI site and popup. Run browser
-commands sequentially so the selected tab and snapshot references cannot race.
+and popup text. Use `tab-list` and `tab-select` to move between the AI site and popup. Run all
+`qa:pw` commands sequentially, including commands for different targets, because they share one CLI
+daemon. If a named session disappears, `qa:pw` automatically reattaches to the run's CDP endpoint.
 
 ## Extension Host and Gateway
 
 ```text
 pnpm qa:ctl <run> status
 pnpm qa:ctl <run> manifest
+pnpm qa:ctl <run> task
+pnpm qa:ctl <run> review
 pnpm qa:ctl <run> trace 50
 pnpm qa:ctl <run> vscode state
 pnpm qa:ctl <run> vscode command <command-id> '["argument"]'
@@ -66,10 +72,18 @@ pnpm qa:ctl <run> vscode open seed.txt 1 1
 On PowerShell, quote JSON so it reaches the control script as one argument. Prefer configuration
 reads and commands in the isolated Extension Host over modifying personal VS Code state.
 
+`task` returns the fixed prompt copied into the run. Send the task text to the site without exposing
+the scenario manifest or grader. `review` summarizes workspace additions/modifications/deletions and
+the tool-event timeline; inspect changed file contents and the visible conversation before judging.
+After the UI investigation is finished and the session is stopped, an agent-eval grader can be run
+as optional evidence with `pnpm eval:scenarios grade <run-id>`.
+
 ## Artifacts
 
 Each run stores `run.json`, `trace.jsonl`, process logs, Playwright output, screenshots, the
 isolated workspace, and browser/Extension Host descriptors under `evals/runs/<run-id>/`.
+Relative `screenshot --filename=...` paths are placed under the run's `artifacts/browser/` or
+`artifacts/vscode/` directory automatically.
 
 If startup fails, inspect `logs/vscode.stderr.log`, `logs/vscode.stdout.log`,
 `logs/browser.stderr.log`, and `browser-host.json` before retrying.

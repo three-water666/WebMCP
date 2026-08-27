@@ -1,4 +1,5 @@
 import * as assert from 'node:assert';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import * as vscode from 'vscode';
@@ -34,7 +35,11 @@ suite('Interactive QA Extension Host', () => {
 
         const configuration = vscode.workspace.getConfiguration('webcodeGateway');
         await configuration.update('port', gatewayPort, vscode.ConfigurationTarget.Global);
-        await configuration.update('servers', {}, vscode.ConfigurationTarget.Global);
+        await configuration.update(
+            'servers',
+            await loadGatewayServers(process.env.WEBCODE_QA_GATEWAY_CONFIG_PATH),
+            vscode.ConfigurationTarget.Global
+        );
 
         const extension = vscode.extensions.getExtension<EvaluationExtensionApi>(EXTENSION_ID);
         assert.ok(extension, `Extension ${EXTENSION_ID} should be loaded.`);
@@ -75,4 +80,19 @@ function requireEnvironmentPath(name: string): string {
         throw new Error(`Missing required environment variable ${name}.`);
     }
     return value;
+}
+
+async function loadGatewayServers(configPath: string | undefined): Promise<Record<string, unknown>> {
+    if (!configPath?.trim()) {
+        return {};
+    }
+    const parsed: unknown = JSON.parse(await fs.readFile(path.resolve(configPath), 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !('servers' in parsed)) {
+        throw new Error(`Invalid QA Gateway configuration: ${configPath}`);
+    }
+    const servers = parsed.servers;
+    if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
+        throw new Error(`QA Gateway configuration must contain a servers object: ${configPath}`);
+    }
+    return servers as Record<string, unknown>;
 }

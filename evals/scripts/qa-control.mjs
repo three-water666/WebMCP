@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import process from 'node:process';
 
 import { isProcessRunning, printJson, requestControl, resolveRun } from './qa-common.mjs';
@@ -22,6 +24,12 @@ switch (command) {
     break;
   case 'popup-url':
     printJson({ popupUrl: run.manifest.popupUrl ?? null });
+    break;
+  case 'task':
+    await printTask();
+    break;
+  case 'review':
+    await printReview();
     break;
   case 'trace':
     await printTrace(commandArguments);
@@ -59,6 +67,8 @@ async function printStatus() {
   printJson({
     run: {
       runId: run.manifest.runId,
+      scenarioId: run.manifest.scenarioId,
+      scenarioTitle: run.manifest.scenarioTitle,
       siteId: run.manifest.siteId,
       status: run.manifest.status,
       workspacePath: run.manifest.workspacePath,
@@ -72,17 +82,120 @@ async function printStatus() {
   });
 }
 
+async function printTask() {
+  const taskPath = run.manifest.taskPath;
+  if (!taskPath) {
+    throw new Error(`Scenario ${run.manifest.scenarioId} does not define an agent task.`);
+  }
+  printJson({
+    scenarioId: run.manifest.scenarioId,
+    title: run.manifest.scenarioTitle,
+    category: run.manifest.category,
+    difficulty: run.manifest.difficulty,
+    taskPath,
+    task: await fs.readFile(taskPath, 'utf8'),
+  });
+}
+
+async function printReview() {
+  const trace = await readTraceEvents();
+  const workspace = await compareWorkspace();
+  const toolTimeline = trace.filter(event => (
+    typeof event.toolName === 'string' || /tool|approval|result/i.test(String(event.event))
+  ));
+  printJson({
+    scenario: {
+      id: run.manifest.scenarioId,
+      title: run.manifest.scenarioTitle,
+      category: run.manifest.category,
+      difficulty: run.manifest.difficulty,
+    },
+    task: run.manifest.taskPath
+      ? await fs.readFile(run.manifest.taskPath, 'utf8')
+      : null,
+    workspace,
+    trace: {
+      eventCount: trace.length,
+      counts: Object.fromEntries(Object.entries(trace.reduce((counts, event) => {
+        const key = [event.source, event.event, event.status].filter(Boolean).join(':');
+        counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      }, {})).sort(([left], [right]) => left.localeCompare(right))),
+      toolTimeline,
+    },
+  });
+}
+
 async function printTrace(args) {
   const tail = readPositiveInteger(args[0], 30);
+  const events = await readTraceEvents();
+  printJson(events.slice(-tail));
+}
+
+async function readTraceEvents() {
   const content = await fs.readFile(run.manifest.tracePath, 'utf8').catch(() => '');
-  const events = content.split(/\r?\n/).filter(Boolean).flatMap(line => {
+  return content.split(/\r?\n/).filter(Boolean).flatMap(line => {
     try {
       return [JSON.parse(line)];
     } catch {
       return [];
     }
   });
-  printJson(events.slice(-tail));
+}
+
+async function compareWorkspace() {
+  const workspaceFiles = await collectFiles(run.manifest.workspacePath);
+  const fixtureFiles = run.manifest.fixturePath
+    ? await collectFiles(run.manifest.fixturePath)
+    : new Map();
+  const fileNames = [...new Set([...workspaceFiles.keys(), ...fixtureFiles.keys()])]
+    .sort((left, right) => left.localeCompare(right));
+  const files = fileNames.map(file => {
+    const workspaceFile = workspaceFiles.get(file);
+    const fixtureFile = fixtureFiles.get(file);
+    let status = 'unchanged';
+    if (!fixtureFile) {
+      status = 'added';
+    } else if (!workspaceFile) {
+      status = 'deleted';
+    } else if (workspaceFile.sha256 !== fixtureFile.sha256) {
+      status = 'modified';
+    }
+    return {
+      path: file,
+      status,
+      size: workspaceFile?.size ?? null,
+    };
+  });
+  return {
+    path: run.manifest.workspacePath,
+    counts: files.reduce((counts, file) => {
+      counts[file.status] += 1;
+      return counts;
+    }, { added: 0, modified: 0, deleted: 0, unchanged: 0 }),
+    files,
+  };
+}
+
+async function collectFiles(rootPath, directory = rootPath) {
+  const files = new Map();
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const absolutePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      const nested = await collectFiles(rootPath, absolutePath);
+      for (const [file, details] of nested) {
+        files.set(file, details);
+      }
+    } else if (entry.isFile()) {
+      const content = await fs.readFile(absolutePath);
+      files.set(path.relative(rootPath, absolutePath), {
+        sha256: createHash('sha256').update(content).digest('hex'),
+        size: content.length,
+      });
+    }
+  }
+  return files;
 }
 
 async function runVsCodeCommand(args) {
@@ -172,7 +285,7 @@ function readPositiveInteger(value, fallback) {
 }
 
 function printUsage() {
-  console.log('Usage: pnpm qa:ctl <run> [status|manifest|popup-url|trace [tail]]');
+  console.log('Usage: pnpm qa:ctl <run> [status|manifest|popup-url|task|review|trace [tail]]');
   console.log('       pnpm qa:ctl <run> vscode state');
   console.log('       pnpm qa:ctl <run> vscode command <id> [json-array]');
   console.log('       pnpm qa:ctl <run> vscode config get <key>');

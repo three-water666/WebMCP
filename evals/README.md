@@ -112,7 +112,7 @@ pnpm eval:scenarios prepare implement-feature-slugify
 命令会输出任务文件、隔离 workspace、Gateway MCP 配置和 run 目录。Agent 完成任务后评分：
 
 ```bash
-pnpm eval:scenarios grade <run-directory>
+pnpm eval:scenarios grade <run-id-or-directory>
 ```
 
 评分结果写入该运行目录的 `grade.json`，同时更新 `run.json`。DeepSeek 真实网页 Runner 会把
@@ -198,11 +198,19 @@ warning，便于修改提示后对比复测。
 
 ## Agent 主导的交互式 QA
 
-交互式 QA 复用真实 Extension Host、Gateway、browser bridge 和持久站点 Profile，但不预先写死
-页面动作或评分条件。启动 ChatGPT 会话：
+交互式 QA 复用真实 Extension Host、Gateway、browser bridge、持久站点 Profile，以及
+`evals/scenarios` 中的固定任务。页面动作不预先写死，最终结论由 Codex 根据真实使用过程判断。
+不指定场景时仍使用最小 bridge fixture：
 
 ```bash
 pnpm qa:start chatgpt
+```
+
+指定 agent-eval 场景时，VS Code 会打开隔离后的代码 workspace 和一个源码文件，并应用场景声明的
+MCP 配置。例如用 DeepSeek 执行固定的代码调用链分析题：
+
+```bash
+pnpm qa:start deepseek read-code-call-chain
 ```
 
 命令返回 run id 后，通过仓库固定版本的官方 Playwright CLI 操作站点浏览器或 VS Code Workbench：
@@ -221,9 +229,20 @@ Extension Host 和 Gateway 的内部状态通过控制命令读取：
 
 ```bash
 pnpm qa:status <run>
+pnpm qa:ctl <run> task
+pnpm qa:ctl <run> review
 pnpm qa:ctl <run> vscode state
 pnpm qa:ctl <run> vscode config get webcodeGateway.port
 pnpm qa:ctl <run> trace 50
+```
+
+`task` 输出复制到 run 内的固定提示词；只把提示词发给网页模型，不暴露 grader。`review` 汇总
+workspace 文件变化和工具事件时间线，Codex 再检查实际文件、对话、状态和操作阻力，判断任务效果
+以及问题属于模型、站点、bridge、Gateway 还是 VS Code。隐藏 grader 可以在会话停止后作为辅助
+正确性证据运行，但不代替人工体验结论：
+
+```bash
+pnpm eval:scenarios grade <run-id>
 ```
 
 浏览器插件 Popup 地址可用 `pnpm qa:ctl <run> popup-url` 读取，再通过 browser 会话的 `tab-new`
@@ -233,7 +252,10 @@ pnpm qa:ctl <run> trace 50
 pnpm qa:pw <run> browser run-code --filename=scripts/qa-popup-ready.js
 ```
 
-同一个 Playwright target 的命令应顺序执行，避免当前标签和元素引用互相覆盖。测试完成后必须停止会话：
+所有 `qa:pw` 命令都应顺序执行，即使操作的是不同 target；两类会话共享同一个 CLI daemon，并发调用
+可能造成命名会话竞争。命名会话意外消失时，`qa:pw` 会自动重新连接该 run 的 CDP endpoint。
+带相对 `--filename` 的截图会自动写到当前 run 的 `artifacts/browser/` 或 `artifacts/vscode/`。
+测试完成后必须停止会话：
 
 ```bash
 pnpm qa:stop <run>
