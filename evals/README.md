@@ -195,3 +195,52 @@ warning，便于修改提示后对比复测。
 - `VSCODE_TEST_VERSION`：没有指定本机 VS Code 时使用的测试版本，默认 `1.106.1`。
 
 运行产物保存在 `evals/runs/`，其中包含隔离工作区、`run.json` 和 `trace.jsonl`。该目录不会提交。
+
+## Agent 主导的交互式 QA
+
+交互式 QA 复用真实 Extension Host、Gateway、browser bridge 和持久站点 Profile，但不预先写死
+页面动作或评分条件。启动 ChatGPT 会话：
+
+```bash
+pnpm qa:start chatgpt
+```
+
+命令返回 run id 后，通过仓库固定版本的官方 Playwright CLI 操作站点浏览器或 VS Code Workbench：
+
+```bash
+pnpm qa:pw <run> browser snapshot
+pnpm qa:pw <run> browser click e12
+pnpm qa:pw <run> browser screenshot --filename=browser.png
+pnpm qa:pw <run> vscode snapshot
+```
+
+`qa:pw` 只负责把 run 和 `browser`/`vscode` 目标映射到对应的 Playwright 命名会话，其余参数原样
+传给官方 CLI。特殊页面诊断可继续使用 `console`、`requests`、`tracing-start` 或 `run-code`。
+
+Extension Host 和 Gateway 的内部状态通过控制命令读取：
+
+```bash
+pnpm qa:status <run>
+pnpm qa:ctl <run> vscode state
+pnpm qa:ctl <run> vscode config get webcodeGateway.port
+pnpm qa:ctl <run> trace 50
+```
+
+浏览器插件 Popup 地址可用 `pnpm qa:ctl <run> popup-url` 读取，再通过 browser 会话的 `tab-new`
+打开。普通标签页与工具栏 popup 的“当前标签”语义不同，打开后使用仓库里的辅助脚本恢复真实目标：
+
+```bash
+pnpm qa:pw <run> browser run-code --filename=scripts/qa-popup-ready.js
+```
+
+同一个 Playwright target 的命令应顺序执行，避免当前标签和元素引用互相覆盖。测试完成后必须停止会话：
+
+```bash
+pnpm qa:stop <run>
+```
+
+每个 run 会保留隔离 workspace、两类 Playwright 产物、截图、Gateway trace 和 VS Code/浏览器进程
+日志。VS Code 的 user data 和 extensions 目录同样按 run 隔离；站点登录保存在被忽略的
+`evals/live-profiles/<site-id>/`。如果任一宿主窗口被手动关闭，`qa:status` 会报告 `degraded`。
+验证码、2FA 和高风险审批仍由人工接管。仓库内的 `webcode-browser-qa` Skill 定义了初始化、网络
+捕获、工具状态、审批、结果回填和 VS Code 导航等探索性测试章程。
