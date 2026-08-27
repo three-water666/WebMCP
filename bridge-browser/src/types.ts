@@ -1,8 +1,13 @@
-import { type Session, type ToolExecutionPayload } from '@webcode/shared';
+import {
+  isSiteNetworkCaptureConfig,
+  type Session,
+  type SiteNetworkCaptureConfig,
+  type ToolExecutionPayload,
+} from '@webcode/shared';
 import { type SiteSelectors } from './modules/config';
 
 // Re-export shared types for convenience
-export type { Session, ToolExecutionPayload };
+export type { Session, SiteNetworkCaptureConfig, ToolExecutionPayload };
 
 // === Extension-Internal Types ===
 
@@ -56,6 +61,7 @@ export interface SuccessResponse {
 }
 
 export interface SyncedAiSite {
+  capture?: unknown;
   id: string;
   name?: string;
   selectors?: unknown;
@@ -167,6 +173,10 @@ export function isSyncedAiSite(value: unknown): value is SyncedAiSite {
       value.name === undefined ||
       typeof value.name === "string"
     );
+}
+
+export function getSiteNetworkCaptureConfig(value: unknown): SiteNetworkCaptureConfig | null {
+  return isSiteNetworkCaptureConfig(value) ? value : null;
 }
 
 export function getSyncedAiSites(value: unknown): SyncedAiSite[] {

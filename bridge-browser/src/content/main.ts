@@ -4,24 +4,26 @@ import * as UI from "../modules/ui";
 import { type SiteSelectors } from "../modules/config";
 import { looksLikeToolCall, parseToolCall } from "../modules/toolCallProtocol";
 import { BRANDING, PROTOCOL } from "@webcode/shared";
-import { getSyncedAiSites, isMessageRequest, isSiteSelectors, isStatusResponse, type MessageRequest, type StatusResponse, type SyncedAiSite } from "../types";
+import {
+  getSiteNetworkCaptureConfig, getSyncedAiSites, isMessageRequest, isSiteSelectors, isStatusResponse,
+  type MessageRequest, type SyncedAiSite,
+} from "../types";
 import { AutoInitPromptController } from "./auto_init_prompt";
 import { createApprovalState, parseStoredApprovalEntries, type ApprovalState } from "./approval_policy";
 import { CompletionNotifier } from "./completion_notifier";
 import { hasPromptResourceChange, loadPromptsFromStorage } from "./prompt_resources";
+import { createNetworkCaptureRuntime } from "./network_capture_runtime";
+import { ResultDeliveryController } from "./result_delivery_controller";
+import { getCurrentStatus, getStorage } from "./runtime_helpers";
 import { logToolSummary, ToolCallTracker } from "./tool_call_tracker";
+import { ToolActivityTracker } from "./tool_activity";
+import { ToolActivityOverlay } from "./tool_activity_overlay";
 import { ToolExecutor } from "./tool_executor";
-import { type BufferedResultBatch, ToolRequestRegistry } from "./tool_request_registry";
+import { ToolRequestRegistry } from "./tool_request_registry";
 import { logVirtualizedHistorySkip } from "./virtualized_history_skip";
 
 // === 配置与状态 ===
-interface ConfigState {
-  pollInterval: number;
-  autoSend: boolean;
-  autoApproveTools: boolean;
-}
-
-const CONFIG: ConfigState = {
+const CONFIG = {
   pollInterval: 1000,
   autoSend: true,
   autoApproveTools: false,
@@ -190,6 +192,7 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
   if (matchedSite && isSiteSelectors(matchedSite.selectors)) {
     DOM = matchedSite.selectors;
     currentSiteName = matchedSite.name ?? matchedSite.id;
+    networkCapture.configure(getSiteNetworkCaptureConfig(matchedSite.capture));
     completionNotifier.reset();
     autoInitPrompt.setupTrigger();
     void loadPromptsFromStorage();
@@ -200,27 +203,15 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
 
   DOM = null;
   currentSiteName = null;
+  networkCapture.configure(null);
   console.log(`${BRANDING.productName}: Site '${siteId}' is not configured in VS Code. Idle.`);
 }
 
 function resetCurrentSite(): void {
+  networkCapture.configure(null);
   DOM = null;
   currentSiteName = null;
   currentSiteId = null;
-}
-
-function getCurrentStatus(): Promise<StatusResponse | null> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "GET_STATUS" }, (response: unknown) => {
-      resolve(isStatusResponse(response) ? response : null);
-    });
-  });
-}
-
-function getStorage(area: chrome.storage.StorageArea, keys: string[]): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    area.get(keys, (items: Record<string, unknown>) => resolve(items));
-  });
 }
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
@@ -246,6 +237,8 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 
 // 统一管理工具调用内部 requestKey 的生命周期：已发现、执行中、结果缓存、已回填，以及当前轮次去重。
 const requestRegistry = new ToolRequestRegistry();
+const toolActivityTracker = new ToolActivityTracker();
+new ToolActivityOverlay(toolActivityTracker);
 let lastProgressLogTime = 0;
 let lastProgressStatus = "";
 
@@ -265,13 +258,37 @@ const toolExecutor = new ToolExecutor({
   getWorkspaceId: () => currentWorkspaceId,
   getApprovalState: () => approvalState,
   getAutoApproveTools: () => CONFIG.autoApproveTools,
+  onActivityStatusChange: (identity, status, message) => {
+    toolActivityTracker.updateStatus(identity, status, message);
+  },
   requestRegistry,
   scheduleMainLoop,
 });
 
+const networkCapture = createNetworkCaptureRuntime({
+  canDeliver: () => Boolean(DOM && !UI.isStopButtonVisible(DOM)),
+  deliver: (batch) => {
+    if (DOM) {
+      resultDelivery.deliver(batch, DOM);
+    }
+  },
+  isConnected: () => isClientConnected,
+  requestRegistry,
+  scheduleMainLoop,
+  toolActivityTracker,
+  toolCallTracker,
+  toolExecutor,
+});
+
+const resultDelivery = new ResultDeliveryController({
+  getAutoSend: () => CONFIG.autoSend,
+  hasPendingTurns: () => networkCapture.hasPendingTurns(),
+  requestRegistry,
+  scheduleMainLoop,
+  toolActivityTracker,
+});
+
 const completionNotifier = new CompletionNotifier();
-let isResultDeliveryRunning = false;
-let isResultDeliveryRerunNeeded = false;
 
 /**
  * 延迟调度一次主循环扫描。
@@ -309,6 +326,9 @@ function runMainLoop() {
   // 进入实际扫描后释放调度锁；本轮扫描期间如果还需要等待，会重新调用 scheduleMainLoop。
   isCheckScheduled = false;
   if (!DOM || !isClientConnected) { return; }
+
+  networkCapture.flushReadyTurn();
+  if (networkCapture.shouldSuppressDomCapture()) { return; }
 
   // UI 层统一按 VS Code 下发的选择器定位最新响应块和其中的 JSON 代码块。
   const latestCodeBlocks = UI.getLatestResponseCodeBlocks(DOM);
@@ -413,7 +433,7 @@ function runMainLoop() {
           `Batch finished: ${resultBatch.outputCount} tools. Writing...`,
           "success"
         );
-        handleResultDelivery(resultBatch, selectors);
+        resultDelivery.deliver(resultBatch, selectors);
       } else {
         // 某些路径可能没有文本输出；它们完成后也要标记为已处理。
         if (resultBatch.hasAnyResult) {
@@ -435,45 +455,6 @@ function runMainLoop() {
       }
     }
   }
-}
-
-function handleResultDelivery(resultBatch: BufferedResultBatch, selectors: SiteSelectors): void {
-  if (isResultDeliveryRunning) {
-    isResultDeliveryRerunNeeded = true;
-    return;
-  }
-
-  isResultDeliveryRunning = true;
-  let batchFinalized = false;
-  void UI.deliverResult(resultBatch.output, selectors)
-    .then((delivery) => {
-      if (!delivery.delivered) {
-        requestRegistry.markFlushed(resultBatch.ids);
-        batchFinalized = true;
-        Logger.log(
-          "Result delivery could not be verified. Marked batch flushed to avoid duplicate delivery; auto-send skipped.",
-          "error"
-        );
-        return;
-      }
-
-      requestRegistry.markFlushed(resultBatch.ids);
-      batchFinalized = true;
-      UI.triggerAutoSend(CONFIG, selectors);
-    })
-    .catch((error) => {
-      requestRegistry.markFlushed(resultBatch.ids);
-      batchFinalized = true;
-      Logger.log(`Result delivery failed: ${getErrorMessage(error)}`, "error");
-    })
-    .finally(() => {
-      isResultDeliveryRunning = false;
-      const shouldRerun = isResultDeliveryRerunNeeded && batchFinalized;
-      isResultDeliveryRerunNeeded = false;
-      if (shouldRerun) {
-        scheduleMainLoop(50);
-      }
-    });
 }
 
 /**
@@ -542,10 +523,6 @@ function startObserver() {
       // Optional: Inform user that connection is missing
     }
   });
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 initDOMConfig();

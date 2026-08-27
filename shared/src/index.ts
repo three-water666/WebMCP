@@ -2,6 +2,10 @@
 
 import brandConfig from './branding.json';
 
+export * from './chatgptStream';
+export * from './networkCapture';
+export * from './sse';
+
 function toHeaderToken(value: string): string {
   return value
     .split(/[^a-zA-Z0-9]+/)
@@ -34,6 +38,9 @@ export const PROTOCOL = {
   authHeaderName: `X-${headerToken}-Token`,
   authHeaderLowerName: `x-${headerToken.toLowerCase()}-token`,
   observerStartedFlag: `_${brandConfig.slug}_observer_started`,
+  networkCaptureConfigMessage: `${brandConfig.slug}:network-capture-config`,
+  networkCaptureEventMessage: `${brandConfig.slug}:network-capture-event`,
+  networkCaptureReadyMessage: `${brandConfig.slug}:network-capture-ready`,
 } as const;
 
 export const PLATFORM_PROMPT_KEY_PREFIX = 'platform_prompt_';

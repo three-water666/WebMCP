@@ -65,6 +65,22 @@ export class ToolCallTracker {
     };
   }
 
+  public ensureNetworkPayloadRequestIdentity(
+    payload: ParsedToolCallPayload,
+    turnId: string,
+    codeBlockIndex: number
+  ): ToolRequestIdentity {
+    const signature = buildToolCallSignature(payload);
+    const turnSignature = hashStableString(turnId);
+    const requestId = normalizeRequestId(payload.request_id) ??
+      `req_auto_network_${turnSignature}_${codeBlockIndex}_${hashStableString(signature)}`;
+    payload.request_id = requestId;
+    return {
+      requestId,
+      requestKey: buildNetworkRequestKey(turnId, codeBlockIndex, requestId),
+    };
+  }
+
   public clearProtocolErrorFeedbackState(requestKey: string): void {
     if (!this.protocolErrorFeedbackRequests.delete(requestKey)) {return;}
     this.options.requestRegistry.clearProtocolFeedbackResult(requestKey);
@@ -105,6 +121,35 @@ export class ToolCallTracker {
       this.blockStates.set(codeEl, state);
     }
 
+    return identity;
+  }
+
+  public handleNetworkProtocolError(
+    textContent: string,
+    turnId: string,
+    codeBlockIndex: number,
+    error: unknown
+  ): ToolRequestIdentity {
+    const requestId = extractRequestIdCandidate(textContent) ??
+      `req_invalid_network_${hashStableString(turnId)}_${codeBlockIndex}_${hashStableString(textContent)}`;
+    const identity = {
+      requestId,
+      requestKey: buildNetworkRequestKey(turnId, codeBlockIndex, requestId),
+    };
+    const message = buildProtocolErrorMessage(error);
+    Logger.log(`Tool call protocol error: ${message}`, "error");
+    void showUserAttentionNotification({
+      title: `${BRANDING.productName} Error`,
+      message: "Invalid tool call format. Returned guidance to the model.",
+    });
+
+    if (
+      !this.options.requestRegistry.hasSeen(identity.requestKey) &&
+      !this.protocolErrorFeedbackRequests.has(identity.requestKey)
+    ) {
+      this.protocolErrorFeedbackRequests.add(identity.requestKey);
+      this.options.requestRegistry.saveToolResult(identity.requestKey, identity.requestId, message, true);
+    }
     return identity;
   }
 
@@ -221,6 +266,15 @@ function ensureElementRequestKey(
   codeEl.dataset.mcpRequestKey = requestKey;
   codeEl.dataset.mcpRequestKeySeed = seed;
   return requestKey;
+}
+
+function buildNetworkRequestKey(turnId: string, codeBlockIndex: number, requestId: string): string {
+  const seed = stableStringify({
+    codeBlockIndex,
+    request_id: requestId,
+    turnId,
+  });
+  return `req_key_network_${hashStableString(seed)}`;
 }
 
 function getProtocolErrorIdentity(

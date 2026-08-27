@@ -1,9 +1,15 @@
+import {
+    isSiteNetworkCaptureConfig,
+    type SiteNetworkCaptureConfig
+} from '@webcode/shared';
+
 export interface AISiteConfig {
     id?: string;
     name?: string;
     address?: string;
     showQuickLaunch?: boolean;
     browser?: string;
+    capture?: Partial<SiteNetworkCaptureConfig>;
     selectors?: Partial<SiteSelectors>;
 }
 
@@ -13,6 +19,7 @@ export interface ResolvedAiSiteConfig {
     address: string;
     showQuickLaunch?: boolean;
     browser?: string;
+    capture?: SiteNetworkCaptureConfig;
     selectors: SiteSelectors;
 }
 
@@ -34,6 +41,15 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'ChatGPT',
         address: 'https://chatgpt.com',
         showQuickLaunch: true,
+        capture: {
+            adapter: 'chatgpt-delta-v1',
+            channels: ['commentary'],
+            enabled: true,
+            method: 'POST',
+            strategy: 'network-preferred',
+            transport: 'fetch-sse',
+            url: 'https://chatgpt.com/backend-api/f/conversation'
+        },
         selectors: {
             messageBlocks: '.agent-turn',
             codeBlocks: 'pre code',
@@ -218,6 +234,7 @@ function mergeAiSiteConfig(base: ResolvedAiSiteConfig, override: AISiteConfig): 
         address: readConfiguredString(override.address) ?? base.address,
         showQuickLaunch: override.showQuickLaunch ?? base.showQuickLaunch,
         browser: override.browser ?? base.browser,
+        capture: mergeSiteNetworkCaptureConfig(base.capture, override.capture),
         selectors: {
             ...base.selectors,
             ...(override.selectors ?? {})
@@ -229,8 +246,9 @@ function resolveCustomAiSite(site: AISiteConfig): ResolvedAiSiteConfig | null {
     const id = normalizeSiteId(site.id ?? site.name);
     const name = readConfiguredString(site.name) ?? readConfiguredString(site.id) ?? id;
     const address = readConfiguredString(site.address);
+    const capture = resolveSiteNetworkCaptureConfig(site.capture);
 
-    if (!id || !name || !address || !isCompleteSelectors(site.selectors)) {
+    if (!id || !name || !address || !isCompleteSelectors(site.selectors) || (site.capture && !capture)) {
         return null;
     }
 
@@ -240,6 +258,7 @@ function resolveCustomAiSite(site: AISiteConfig): ResolvedAiSiteConfig | null {
         address,
         showQuickLaunch: site.showQuickLaunch,
         browser: site.browser,
+        capture,
         selectors: { ...site.selectors }
     };
 }
@@ -266,8 +285,56 @@ function isCompleteSelectors(selectors: Partial<SiteSelectors> | undefined): sel
 function cloneResolvedAiSite(site: ResolvedAiSiteConfig): ResolvedAiSiteConfig {
     return {
         ...site,
+        capture: cloneSiteNetworkCaptureConfig(site.capture),
         selectors: { ...site.selectors }
     };
+}
+
+function mergeSiteNetworkCaptureConfig(
+    base: SiteNetworkCaptureConfig | undefined,
+    override: Partial<SiteNetworkCaptureConfig> | undefined
+): SiteNetworkCaptureConfig | undefined {
+    if (!override) {
+        return cloneSiteNetworkCaptureConfig(base);
+    }
+
+    const merged = {
+        ...base,
+        ...override,
+        channels: override.channels ?? base?.channels
+    };
+    return isSiteNetworkCaptureConfig(merged)
+        ? cloneSiteNetworkCaptureConfig(merged)
+        : cloneSiteNetworkCaptureConfig(base);
+}
+
+function resolveSiteNetworkCaptureConfig(
+    capture: Partial<SiteNetworkCaptureConfig> | undefined
+): SiteNetworkCaptureConfig | undefined {
+    if (!capture) {
+        return undefined;
+    }
+
+    const resolved: Record<keyof SiteNetworkCaptureConfig, unknown> = {
+        adapter: capture.adapter,
+        channels: capture.channels ?? ['commentary'],
+        enabled: capture.enabled ?? true,
+        method: capture.method ?? 'POST',
+        strategy: capture.strategy ?? 'network-preferred',
+        transport: capture.transport ?? 'fetch-sse',
+        url: capture.url
+    };
+    return isSiteNetworkCaptureConfig(resolved)
+        ? cloneSiteNetworkCaptureConfig(resolved)
+        : undefined;
+}
+
+function cloneSiteNetworkCaptureConfig(
+    capture: SiteNetworkCaptureConfig | undefined
+): SiteNetworkCaptureConfig | undefined {
+    return capture
+        ? { ...capture, channels: [...capture.channels] }
+        : undefined;
 }
 
 function normalizeSiteName(name: string | undefined): string {

@@ -12,6 +12,7 @@ import {
   persistApprovalRule,
   type ApprovalState,
 } from "./approval_policy";
+import type { ToolActivityStatus } from "./tool_activity";
 import { type ToolRequestIdentity, type ToolRequestRegistry } from "./tool_request_registry";
 
 interface ToolExecutorOptions {
@@ -20,6 +21,11 @@ interface ToolExecutorOptions {
   getWorkspaceId: () => string;
   getApprovalState: () => ApprovalState;
   getAutoApproveTools: () => boolean;
+  onActivityStatusChange: (
+    identity: ToolRequestIdentity,
+    status: ToolActivityStatus,
+    message?: string
+  ) => void;
   requestRegistry: ToolRequestRegistry;
   scheduleMainLoop: (delayMs: number) => void;
 }
@@ -57,6 +63,7 @@ export class ToolExecutor {
     };
 
     // Normal capture flow assigns a stable identity in ToolCallTracker before execution.
+    this.options.onActivityStatusChange(identity, "queued");
     void this.queueApprovalIfNeeded(request);
     this.toolExecutionQueue.push(request);
     void this.processToolExecutionQueue();
@@ -94,10 +101,12 @@ export class ToolExecutor {
         try {
           if (!this.needsApproval(approvalRequest.request.payload)) {
             this.pendingApprovals.delete(approvalRequest.request.identity.requestKey);
+            this.options.onActivityStatusChange(approvalRequest.request.identity, "queued");
             approvalRequest.resolve(true);
             continue;
           }
 
+          this.options.onActivityStatusChange(approvalRequest.request.identity, "awaiting_approval");
           Logger.log(`${t("hitl_intercept")}: ${approvalRequest.request.payload.name}`, "warn");
           const approved = await this.requestToolApproval(approvalRequest.request);
           approvalRequest.resolve(approved);
@@ -139,6 +148,7 @@ export class ToolExecutor {
 
   private async runQueuedTool(request: ToolExecutionRequest): Promise<void> {
     if (request.payload.name === PROTOCOL.initToolName) {
+      this.options.onActivityStatusChange(request.identity, "executing");
       await this.initializeWebcode(request);
       return;
     }
@@ -151,6 +161,7 @@ export class ToolExecutor {
     const approved = await this.waitForApproval(request);
     if (!approved) {return;}
 
+    this.options.onActivityStatusChange(request.identity, "executing");
     await this.performExecution(request);
   }
 
@@ -180,6 +191,7 @@ export class ToolExecutor {
   private failQueuedTool(request: ToolExecutionRequest, error: unknown): void {
     const message = getErrorMessage(error) || "Tool execution failed.";
     this.options.requestRegistry.markSettled(request.identity.requestKey);
+    this.options.onActivityStatusChange(request.identity, "failed", message);
     Logger.log(`${t("exec_fail")}: ${message}`, "error");
     this.options.requestRegistry.saveToolResult(
       request.identity.requestKey,
@@ -205,6 +217,7 @@ export class ToolExecutor {
 
     this.options.requestRegistry.saveRawResult(request.identity.requestKey, finalPrompt);
     this.options.requestRegistry.markSettled(request.identity.requestKey);
+    this.options.onActivityStatusChange(request.identity, "succeeded");
     // 给当前调用栈一点时间收尾，再让主循环批处理回填，和普通工具完成路径保持一致。
     this.options.scheduleMainLoop(50);
   }
@@ -226,6 +239,7 @@ export class ToolExecutor {
 
             if (chrome.runtime.lastError) {
               const errorMessage = chrome.runtime.lastError.message ?? "Tool execution failed.";
+              this.options.onActivityStatusChange(request.identity, "failed", errorMessage);
               Logger.log(`${t("exec_fail")}: ${errorMessage}`, "error");
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
@@ -241,6 +255,7 @@ export class ToolExecutor {
 
             const result = normalizeToolResponse(response);
             if (result.success) {
+              this.options.onActivityStatusChange(request.identity, "succeeded");
               Logger.log(`${t("exec_success")}: ${request.payload.name}`, "success");
               const outputContent = formatSuccessfulResult(request.payload.name, result.data);
               this.options.requestRegistry.saveToolResult(
@@ -251,6 +266,11 @@ export class ToolExecutor {
                 request.payload.name
               );
             } else {
+              this.options.onActivityStatusChange(
+                request.identity,
+                "failed",
+                result.error ?? "Tool execution failed."
+              );
               Logger.log(`${t("exec_fail")}: ${result.error}`, "error");
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
@@ -284,6 +304,7 @@ export class ToolExecutor {
       ].join("");
 
     this.options.requestRegistry.markSettled(request.identity.requestKey);
+    this.options.onActivityStatusChange(request.identity, "failed", message);
     Logger.log(`${t("exec_fail")}: ${message}`, "error");
     this.options.requestRegistry.saveToolResult(
       request.identity.requestKey,
@@ -314,6 +335,11 @@ export class ToolExecutor {
         },
         (reason) => {
           this.options.requestRegistry.markSettled(request.identity.requestKey);
+          this.options.onActivityStatusChange(
+            request.identity,
+            "rejected",
+            reason || "No reason provided."
+          );
           this.focusInput();
           Logger.log(`${t("hitl_rejected")}: ${request.payload.name}`, "error");
           this.options.requestRegistry.saveToolResult(
