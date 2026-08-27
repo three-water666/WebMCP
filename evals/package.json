@@ -10,10 +10,17 @@
     "e2e:minimal:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",
     "e2e:minimal": "pnpm run e2e:minimal:prepare && node scripts/run-minimal-e2e.mjs",
     "live:deepseek:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",
-    "live:deepseek": "pnpm run live:deepseek:prepare && node scripts/run-deepseek-live.mjs"
+    "live:deepseek": "pnpm run live:deepseek:prepare && node scripts/run-deepseek-live.mjs",
+    "qa:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",
+    "qa:start": "pnpm run qa:prepare && node scripts/qa-start.mjs",
+    "qa:pw": "node scripts/qa-playwright.mjs",
+    "qa:ctl": "node scripts/qa-control.mjs",
+    "qa:status": "node scripts/qa-control.mjs",
+    "qa:stop": "node scripts/qa-stop.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@playwright/cli": "0.1.18",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.106.1",

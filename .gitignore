@@ -18,6 +18,10 @@ skills
 !.codex/skills/
 !.codex/skills/release-package/
 !.codex/skills/release-package/**
+!.codex/skills/playwright-cli/
+!.codex/skills/playwright-cli/**
+!.codex/skills/webcode-browser-qa/
+!.codex/skills/webcode-browser-qa/**
 skills-lock.json
 .qoder
 .trae
@@ -25,3 +29,4 @@ skills-lock.json
 /evals/runs/
 /evals/live-profiles/
 /bridge-browser/public/generated/
+/evals/.playwright-cli/
