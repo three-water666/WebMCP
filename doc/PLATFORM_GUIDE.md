@@ -15,6 +15,7 @@ VS Code 端完整站点结构：
   address: string;
   showQuickLaunch?: boolean;
   browser?: string;
+  capture?: SiteNetworkCaptureConfig;
   selectors: SiteSelectors;
 }
 ```
@@ -25,6 +26,7 @@ VS Code 端完整站点结构：
 {
   id: string;
   name: string;
+  capture?: SiteNetworkCaptureConfig;
   selectors: SiteSelectors;
 }
 ```
@@ -53,6 +55,12 @@ VS Code 端完整站点结构：
   - 浏览器 content script 操作网页所需的 DOM selectors。
   - 这是浏览器端站点配置里最核心的字段。
 
+- `capture`
+  - 可选的网络响应捕获配置，用于 DOM 中不存在或尚未展开的工具调用。
+  - 配置通过 `/v1/init` 下发，但只允许选择扩展内置的 transport、strategy 和 adapter，
+    不会从远端下载或执行解析代码。
+  - 即使启用网络捕获，仍需要 selectors 来回填工具结果和触发发送。
+
 每个已连接 tab 的浏览器 session 会保存：
 
 ```ts
@@ -77,7 +85,7 @@ VS Code 端完整站点结构：
 
 - 先加载内置默认站点。
 - 用户配置里有 `id` 时，优先按 `id` 匹配内置站点。
-- `id` 命中内置站点时，覆盖该内置站点的可配置字段，`selectors` 按字段合并。
+- `id` 命中内置站点时，覆盖该内置站点的可配置字段，`selectors` 和 `capture` 按字段合并。
 - 用户配置没有 `id` 时，会按 `name` 匹配内置站点，这是旧配置兼容兜底。
 - `id` 不命中内置站点时，作为新增自定义站点。
 - 自定义站点必须提供完整 `selectors`，不会自动继承其他站点。
@@ -193,7 +201,7 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
 6. 版本一致后，bridge 页面握手，把 `siteId`、`targetOrigin`、`targetUrl` 写进 `session_<tabId>`。
 7. background 异步请求 `/v1/init`，把 prompts 和 `syncedAiSites` 写进 `chrome.storage.local`。
 8. 目标 AI 页面里的 content script 通过 `GET_STATUS` 拿到 `siteId`。
-9. content script 用 `siteId` 在 `syncedAiSites` 中查 selectors。
+9. content script 用 `siteId` 在 `syncedAiSites` 中查 selectors 和可选 capture 配置。
 
 这个设计避免了两个问题：
 
@@ -234,6 +242,55 @@ selectors 建议：
 - 同时测试空闲状态和生成中状态。
 - 检查登录、重定向、新会话、已有会话 URL。
 
+## 网络响应捕获
+
+网络捕获与现有 DOM 扫描并行。当前内置 ChatGPT 配置会匹配
+`POST https://chatgpt.com/backend-api/f/conversation` 的 EventStream，并使用
+`chatgpt-delta-v1` adapter 重建 `commentary` 消息：
+
+该路径依赖静态 `MAIN` world content script，需要 Chromium 111 或更高版本。
+
+```json
+{
+  "capture": {
+    "enabled": true,
+    "strategy": "network-preferred",
+    "transport": "fetch-sse",
+    "method": "POST",
+    "url": "https://chatgpt.com/backend-api/f/conversation",
+    "adapter": "chatgpt-delta-v1",
+    "channels": ["commentary"]
+  }
+}
+```
+
+运行规则：
+
+- 页面主世界脚本在 `document_start` 包装 `window.fetch`，返回给网站的原始 `Response` 不变，
+  扩展只读取 clone。
+- 仅匹配配置的 URL、HTTP method 和 `text/event-stream` 响应；URL query 不参与匹配。
+- adapter 会跨 SSE chunk 重建增量消息，因此工具调用 JSON 即使被拆到多个 chunk 也能识别。
+- 整个响应成功结束并收到流完成标记后，才会提交其中的工具调用；不完整、失败或已移除的消息会丢弃。
+- 网络回合开始后会暂时抑制同一回合的 DOM 捕获，避免重复执行；网络捕获未命中或失败时继续使用 DOM 兜底。
+- 页面和隔离的 content script 之间使用每页随机 token 关联并过滤消息，只传递提取出的工具调用 JSON 候选。
+- 原始 EventStream、隐藏 commentary 正文、请求头和凭据不会传给 content script 或 Gateway，也不会写入存储。
+
+`capture` 是声明式配置，不是通用网络脚本。新增协议时，需要先在浏览器扩展中实现并发布 adapter，
+再把该 adapter 名称写入平台配置。内置 ChatGPT 网络捕获可以通过下面的覆盖临时关闭：
+
+```json
+{
+  "webcodeGateway.aiSites": [
+    {
+      "id": "chatgpt",
+      "capture": {
+        "enabled": false
+      }
+    }
+  ]
+}
+```
+
 ## 验证建议
 
 建议执行：
@@ -251,10 +308,11 @@ pnpm lint
 1. 从 VS Code 状态栏打开目标站点。
 2. 确认 bridge 页面握手成功并跳转。
 3. 确认浏览器扩展存储里 `session_<tabId>` 有 `siteId`、`targetOrigin`、`targetUrl`。
-4. 确认 `/v1/init` 下发的 `syncedAiSites` 只有 `id/name/selectors`。
-5. 验证工具调用 JSON 能被捕获。
-6. 验证工具结果能成功回填。
-7. 验证自动发送正常。
+4. 确认 `/v1/init` 下发的 `syncedAiSites` 只有 `id/name/selectors` 和可选 `capture`。
+5. 对启用网络捕获的站点，验证隐藏或撤回的完整工具调用仍能被捕获，失败流不会执行。
+6. 验证普通 DOM 工具调用不会与网络捕获重复执行。
+7. 验证工具结果能成功回填。
+8. 验证自动发送正常。
 
 ## 常见坑
 

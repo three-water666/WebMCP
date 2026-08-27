@@ -12,6 +12,8 @@ import {
   persistApprovalRule,
   type ApprovalState,
 } from "./approval_policy";
+import { grantCommandApproval, preflightCommand } from "./command_preflight";
+import type { ToolActivityStatus } from "./tool_activity";
 import { type ToolRequestIdentity, type ToolRequestRegistry } from "./tool_request_registry";
 
 interface ToolExecutorOptions {
@@ -20,6 +22,11 @@ interface ToolExecutorOptions {
   getWorkspaceId: () => string;
   getApprovalState: () => ApprovalState;
   getAutoApproveTools: () => boolean;
+  onActivityStatusChange: (
+    identity: ToolRequestIdentity,
+    status: ToolActivityStatus,
+    message?: string
+  ) => void;
   requestRegistry: ToolRequestRegistry;
   scheduleMainLoop: (delayMs: number) => void;
 }
@@ -28,22 +35,6 @@ interface ToolExecutionResponse {
   success: boolean;
   error?: string;
   data?: unknown;
-}
-
-interface ToolPreflightResponse {
-  success: boolean;
-  error?: string;
-  risk?: {
-    level: "allowed" | "requires_confirmation" | "blocked";
-    reasons: string[];
-  };
-  challengeId?: string;
-}
-
-interface ToolApprovalResponse {
-  success: boolean;
-  approvalToken?: string;
-  error?: string;
 }
 
 interface QueuedApprovalRequest {
@@ -72,6 +63,8 @@ export class ToolExecutor {
       payload,
     };
 
+    // Normal capture flow assigns a stable identity in ToolCallTracker before execution.
+    this.options.onActivityStatusChange(identity, "queued");
     this.toolExecutionQueue.push(request);
     void this.processToolExecutionQueue();
   }
@@ -108,10 +101,12 @@ export class ToolExecutor {
         try {
           if (!this.needsApproval(approvalRequest.request.payload)) {
             this.pendingApprovals.delete(approvalRequest.request.identity.requestKey);
+            this.options.onActivityStatusChange(approvalRequest.request.identity, "queued");
             approvalRequest.resolve(true);
             continue;
           }
 
+          this.options.onActivityStatusChange(approvalRequest.request.identity, "awaiting_approval");
           Logger.log(`${t("hitl_intercept")}: ${approvalRequest.request.payload.name}`, "warn");
           const approved = await this.requestToolApproval(approvalRequest.request);
           approvalRequest.resolve(approved);
@@ -153,6 +148,7 @@ export class ToolExecutor {
 
   private async runQueuedTool(request: ToolExecutionRequest): Promise<void> {
     if (request.payload.name === PROTOCOL.initToolName) {
+      this.options.onActivityStatusChange(request.identity, "executing");
       await this.initializeWebcode(request);
       return;
     }
@@ -162,12 +158,13 @@ export class ToolExecutor {
       return;
     }
 
-    const preflight = await this.preflightCommand(request);
+    const preflight = await preflightCommand(request.payload);
     let approvalToken: string | undefined;
     if (preflight?.risk?.level === "blocked") {
       throw new Error(`Command blocked by security policy: ${preflight.risk.reasons.join(" ")}`);
     }
     if (preflight?.risk?.level === "requires_confirmation") {
+      this.options.onActivityStatusChange(request.identity, "awaiting_approval");
       const approved = await this.requestToolApproval(request, {
         mandatory: true,
         riskReasons: preflight.risk.reasons,
@@ -176,12 +173,13 @@ export class ToolExecutor {
       if (!preflight.challengeId) {
         throw new Error("Gateway did not return a command approval challenge.");
       }
-      approvalToken = await this.grantCommandApproval(preflight.challengeId);
+      approvalToken = await grantCommandApproval(preflight.challengeId);
     } else {
       const approved = await this.waitForApproval(request);
       if (!approved) {return;}
     }
 
+    this.options.onActivityStatusChange(request.identity, "executing");
     await this.performExecution(request, approvalToken);
   }
 
@@ -211,6 +209,7 @@ export class ToolExecutor {
   private failQueuedTool(request: ToolExecutionRequest, error: unknown): void {
     const message = getErrorMessage(error) || "Tool execution failed.";
     this.options.requestRegistry.markSettled(request.identity.requestKey);
+    this.options.onActivityStatusChange(request.identity, "failed", message);
     Logger.log(`${t("exec_fail")}: ${message}`, "error");
     this.options.requestRegistry.saveToolResult(
       request.identity.requestKey,
@@ -236,6 +235,7 @@ export class ToolExecutor {
 
     this.options.requestRegistry.saveRawResult(request.identity.requestKey, finalPrompt);
     this.options.requestRegistry.markSettled(request.identity.requestKey);
+    this.options.onActivityStatusChange(request.identity, "succeeded");
     // 给当前调用栈一点时间收尾，再让主循环批处理回填，和普通工具完成路径保持一致。
     this.options.scheduleMainLoop(50);
   }
@@ -260,6 +260,7 @@ export class ToolExecutor {
 
             if (chrome.runtime.lastError) {
               const errorMessage = chrome.runtime.lastError.message ?? "Tool execution failed.";
+              this.options.onActivityStatusChange(request.identity, "failed", errorMessage);
               Logger.log(`${t("exec_fail")}: ${errorMessage}`, "error");
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
@@ -275,6 +276,7 @@ export class ToolExecutor {
 
             const result = normalizeToolResponse(response);
             if (result.success) {
+              this.options.onActivityStatusChange(request.identity, "succeeded");
               Logger.log(`${t("exec_success")}: ${request.payload.name}`, "success");
               const outputContent = formatSuccessfulResult(request.payload.name, result.data);
               this.options.requestRegistry.saveToolResult(
@@ -285,6 +287,11 @@ export class ToolExecutor {
                 request.payload.name
               );
             } else {
+              this.options.onActivityStatusChange(
+                request.identity,
+                "failed",
+                result.error ?? "Tool execution failed."
+              );
               Logger.log(`${t("exec_fail")}: ${result.error}`, "error");
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
@@ -318,6 +325,7 @@ export class ToolExecutor {
       ].join("");
 
     this.options.requestRegistry.markSettled(request.identity.requestKey);
+    this.options.onActivityStatusChange(request.identity, "failed", message);
     Logger.log(`${t("exec_fail")}: ${message}`, "error");
     this.options.requestRegistry.saveToolResult(
       request.identity.requestKey,
@@ -351,6 +359,11 @@ export class ToolExecutor {
         },
         (reason) => {
           this.options.requestRegistry.markSettled(request.identity.requestKey);
+          this.options.onActivityStatusChange(
+            request.identity,
+            "rejected",
+            reason || "No reason provided."
+          );
           this.focusInput();
           Logger.log(`${t("hitl_rejected")}: ${request.payload.name}`, "error");
           this.options.requestRegistry.saveToolResult(
@@ -368,52 +381,12 @@ export class ToolExecutor {
     });
   }
 
-  private preflightCommand(request: ToolExecutionRequest): Promise<ToolPreflightResponse | null> {
-    if (request.payload.name !== "execute_command" && request.payload.name !== "run_in_terminal") {
-      return Promise.resolve(null);
-    }
-
-    return sendRuntimeMessage<ToolPreflightResponse>({
-      type: "PREFLIGHT_TOOL",
-      payload: request.payload,
-    }).then((response) => {
-      if (!response.success) {
-        throw new Error(response.error ?? "Command preflight failed.");
-      }
-      return response;
-    });
-  }
-
-  private grantCommandApproval(challengeId: string): Promise<string> {
-    return sendRuntimeMessage<ToolApprovalResponse>({
-      type: "APPROVE_TOOL",
-      challengeId,
-    }).then((response) => {
-      if (!response.success || !response.approvalToken) {
-        throw new Error(response.error ?? "Command approval failed.");
-      }
-      return response.approvalToken;
-    });
-  }
-
   private focusInput(): void {
     const selectors = this.options.getSelectors();
     if (!selectors) {return;}
 
     UI.focusInputArea(selectors);
   }
-}
-
-function sendRuntimeMessage<T>(message: unknown): Promise<T> {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response: T) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message ?? "Runtime message failed."));
-        return;
-      }
-      resolve(response);
-    });
-  });
 }
 
 function formatSuccessfulResult(toolName: string, data: unknown): string {

@@ -13,7 +13,13 @@ interface SharedBrandingConfig {
 const sharedIndexPath = normalizePath(resolve(__dirname, '../shared/src/index.ts'));
 const sharedBrandingPath = resolve(__dirname, '../shared/src/branding.json');
 const sharedBrandingConfig = JSON.parse(readFileSync(sharedBrandingPath, 'utf8')) as SharedBrandingConfig;
-const extensionManifest = defineManifest(manifest);
+const extensionManifest = defineManifest({
+  ...manifest,
+  content_scripts: manifest.content_scripts.map(script => ({
+    ...script,
+    world: script.world === 'MAIN' ? 'MAIN' as const : undefined,
+  })),
+});
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, '/');

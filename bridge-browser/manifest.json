@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "111",
   "name": "__MSG_extensionName__",
   "version": "0.11.2",
   "description": "__MSG_extensionDescription__",
@@ -70,6 +71,14 @@
       ],
       "js": ["bridge_marker.js", "src/content/bridge_loader.ts"],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": ["public/generated/network_capture_main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     },
     {
       "matches": [

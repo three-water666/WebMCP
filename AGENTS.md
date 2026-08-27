@@ -26,3 +26,13 @@ Avoid body entries like:
 - Ran format:staged and lint:staged.
 - I updated the tests.
 ```
+
+## Interactive QA Guidelines
+
+- Use the `webcode-browser-qa` skill after changes to browser capture, bridge behavior, popup or
+  initialization flows, approvals, result delivery, site selectors, browser launching, or VS Code
+  integration UI.
+- Treat `test:e2e:minimal` as a deterministic regression check, not a replacement for agent-led
+  inspection of the affected real UI flow.
+- Run interactive QA in the isolated workspace and profiles created by `qa:start`; do not point
+  browser-driven tool calls at the repository working tree.

@@ -26,4 +26,31 @@ suite('gateway init route helpers', () => {
         assert.strictEqual(syncedSites[0].id, 'chatgpt');
         assert.strictEqual(syncedSites[0].name, 'ChatGPT');
     });
+
+    test('syncs configured network response capture data', () => {
+        const syncedSites = buildSyncedAiSites([{
+            id: 'chatgpt',
+            name: 'ChatGPT',
+            address: 'https://chatgpt.com',
+            capture: {
+                adapter: 'chatgpt-delta-v1',
+                channels: ['commentary'],
+                enabled: true,
+                method: 'POST',
+                strategy: 'network-preferred',
+                transport: 'fetch-sse',
+                url: 'https://chatgpt.com/backend-api/f/conversation'
+            },
+            selectors: {
+                messageBlocks: '.message',
+                codeBlocks: 'pre code',
+                inputArea: 'textarea',
+                sendButton: 'button.send',
+                stopButton: 'button.stop',
+            }
+        }] satisfies ResolvedAiSiteConfig[]);
+
+        assert.strictEqual(syncedSites[0].capture?.adapter, 'chatgpt-delta-v1');
+        assert.deepStrictEqual(syncedSites[0].capture?.channels, ['commentary']);
+    });
 });

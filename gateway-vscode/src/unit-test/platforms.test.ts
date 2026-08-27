@@ -15,6 +15,8 @@ suite('platform registry', () => {
         assert.ok(chatgpt);
         assert.strictEqual(chatgpt.name, 'ChatGPT');
         assert.strictEqual(chatgpt.address, 'https://chatgpt.com');
+        assert.strictEqual(chatgpt.capture?.adapter, 'chatgpt-delta-v1');
+        assert.strictEqual(chatgpt.capture?.url, 'https://chatgpt.com/backend-api/f/conversation');
         assert.strictEqual(typeof chatgpt.selectors.inputArea, 'string');
     });
 
@@ -62,6 +64,21 @@ suite('platform registry', () => {
 
         assert.ok(chatgpt);
         assert.strictEqual(chatgpt.selectors.sendButton, 'button[data-test="send"]');
+    });
+
+    test('merges network capture overrides by id', () => {
+        const sites = getConfiguredAiSites([{
+            id: 'chatgpt',
+            capture: {
+                enabled: false
+            }
+        }]);
+        const chatgpt = findAiSiteById(sites, 'chatgpt');
+
+        assert.ok(chatgpt?.capture);
+        assert.strictEqual(chatgpt.capture.enabled, false);
+        assert.strictEqual(chatgpt.capture.adapter, 'chatgpt-delta-v1');
+        assert.deepStrictEqual(chatgpt.capture.channels, ['commentary']);
     });
 
     test('adds custom sites with a new id and complete selectors', () => {

@@ -15,7 +15,8 @@ No migration is required.
 `;
 
 export async function grade({ workspacePath }) {
-  const actual = await readText(path.join(workspacePath, 'RELEASE_NOTES.md'));
+  const actual = (await readText(path.join(workspacePath, 'RELEASE_NOTES.md')))
+    .replace(/\r\n/g, '\n');
   return gradeResult([
     check('skill-output', 100, actual === EXPECTED, 'release notes exactly follow the workspace Skill'),
   ]);
