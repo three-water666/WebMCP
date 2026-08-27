@@ -13,10 +13,13 @@ import { createApprovalState, parseStoredApprovalEntries, type ApprovalState } f
 import { CompletionNotifier } from "./completion_notifier";
 import { hasPromptResourceChange, loadPromptsFromStorage } from "./prompt_resources";
 import { createNetworkCaptureRuntime } from "./network_capture_runtime";
-import { getCurrentStatus, getErrorMessage, getStorage } from "./runtime_helpers";
+import { ResultDeliveryController } from "./result_delivery_controller";
+import { getCurrentStatus, getStorage } from "./runtime_helpers";
 import { logToolSummary, ToolCallTracker } from "./tool_call_tracker";
+import { ToolActivityTracker } from "./tool_activity";
+import { ToolActivityOverlay } from "./tool_activity_overlay";
 import { ToolExecutor } from "./tool_executor";
-import { type BufferedResultBatch, ToolRequestRegistry } from "./tool_request_registry";
+import { ToolRequestRegistry } from "./tool_request_registry";
 import { logVirtualizedHistorySkip } from "./virtualized_history_skip";
 
 // === 配置与状态 ===
@@ -234,6 +237,8 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 
 // 统一管理工具调用内部 requestKey 的生命周期：已发现、执行中、结果缓存、已回填，以及当前轮次去重。
 const requestRegistry = new ToolRequestRegistry();
+const toolActivityTracker = new ToolActivityTracker();
+new ToolActivityOverlay(toolActivityTracker);
 let lastProgressLogTime = 0;
 let lastProgressStatus = "";
 
@@ -253,6 +258,9 @@ const toolExecutor = new ToolExecutor({
   getWorkspaceId: () => currentWorkspaceId,
   getApprovalState: () => approvalState,
   getAutoApproveTools: () => CONFIG.autoApproveTools,
+  onActivityStatusChange: (identity, status, message) => {
+    toolActivityTracker.updateStatus(identity, status, message);
+  },
   requestRegistry,
   scheduleMainLoop,
 });
@@ -261,19 +269,26 @@ const networkCapture = createNetworkCaptureRuntime({
   canDeliver: () => Boolean(DOM && !UI.isStopButtonVisible(DOM)),
   deliver: (batch) => {
     if (DOM) {
-      handleResultDelivery(batch, DOM);
+      resultDelivery.deliver(batch, DOM);
     }
   },
   isConnected: () => isClientConnected,
   requestRegistry,
   scheduleMainLoop,
+  toolActivityTracker,
   toolCallTracker,
   toolExecutor,
 });
 
+const resultDelivery = new ResultDeliveryController({
+  getAutoSend: () => CONFIG.autoSend,
+  hasPendingTurns: () => networkCapture.hasPendingTurns(),
+  requestRegistry,
+  scheduleMainLoop,
+  toolActivityTracker,
+});
+
 const completionNotifier = new CompletionNotifier();
-let isResultDeliveryRunning = false;
-let isResultDeliveryRerunNeeded = false;
 
 /**
  * 延迟调度一次主循环扫描。
@@ -418,7 +433,7 @@ function runMainLoop() {
           `Batch finished: ${resultBatch.outputCount} tools. Writing...`,
           "success"
         );
-        handleResultDelivery(resultBatch, selectors);
+        resultDelivery.deliver(resultBatch, selectors);
       } else {
         // 某些路径可能没有文本输出；它们完成后也要标记为已处理。
         if (resultBatch.hasAnyResult) {
@@ -440,47 +455,6 @@ function runMainLoop() {
       }
     }
   }
-}
-
-function handleResultDelivery(resultBatch: BufferedResultBatch, selectors: SiteSelectors): void {
-  if (isResultDeliveryRunning) {
-    isResultDeliveryRerunNeeded = true;
-    return;
-  }
-
-  isResultDeliveryRunning = true;
-  let batchFinalized = false;
-  void UI.deliverResult(resultBatch.output, selectors)
-    .then((delivery) => {
-      if (!delivery.delivered) {
-        requestRegistry.markFlushed(resultBatch.ids);
-        batchFinalized = true;
-        Logger.log(
-          "Result delivery could not be verified. Marked batch flushed to avoid duplicate delivery; auto-send skipped.",
-          "error"
-        );
-        return;
-      }
-
-      requestRegistry.markFlushed(resultBatch.ids);
-      batchFinalized = true;
-      UI.triggerAutoSend(CONFIG, selectors);
-    })
-    .catch((error) => {
-      requestRegistry.markFlushed(resultBatch.ids);
-      batchFinalized = true;
-      Logger.log(`Result delivery failed: ${getErrorMessage(error)}`, "error");
-    })
-    .finally(() => {
-      isResultDeliveryRunning = false;
-      const shouldRerun = batchFinalized && (
-        isResultDeliveryRerunNeeded || networkCapture.hasPendingTurns()
-      );
-      isResultDeliveryRerunNeeded = false;
-      if (shouldRerun) {
-        scheduleMainLoop(50);
-      }
-    });
 }
 
 /**

@@ -4,6 +4,7 @@ import type { NetworkCaptureCompletedEvent } from "../modules/network_capture_pr
 import { looksLikeToolCall, parseToolCall } from "../modules/toolCallProtocol";
 import * as UI from "../modules/ui";
 import { logToolSummary, type ToolCallTracker } from "./tool_call_tracker";
+import type { ToolActivityTracker } from "./tool_activity";
 import type { ToolExecutor } from "./tool_executor";
 import type { BufferedResultBatch, ToolRequestRegistry } from "./tool_request_registry";
 
@@ -12,6 +13,7 @@ interface NetworkToolCallControllerOptions {
   deliver: (batch: BufferedResultBatch) => void;
   requestRegistry: ToolRequestRegistry;
   scheduleMainLoop: (delayMs: number) => void;
+  toolActivityTracker: ToolActivityTracker;
   toolCallTracker: ToolCallTracker;
   toolExecutor: ToolExecutor;
 }
@@ -34,9 +36,15 @@ export class NetworkToolCallController {
       return false;
     }
 
+    this.options.toolActivityTracker.beginTurn(event.captureId);
     const requestKeys: string[] = [];
     candidates.forEach((candidate) => {
-      const identity = this.captureCandidate(candidate.text, candidate.turnId, candidate.index);
+      const identity = this.captureCandidate(
+        candidate.text,
+        candidate.turnId,
+        event.captureId,
+        candidate.index
+      );
       requestKeys.push(identity.requestKey);
     });
     this.pendingTurns.push({ captureId: event.captureId, requestKeys });
@@ -57,6 +65,7 @@ export class NetworkToolCallController {
         return;
       }
       if (!this.options.canDeliver()) {
+        this.options.toolActivityTracker.updateDelivery(pendingBatch.ids, "waiting");
         this.options.scheduleMainLoop(1000);
         return;
       }
@@ -64,11 +73,13 @@ export class NetworkToolCallController {
       const resultBatch = this.options.requestRegistry.buildBufferedResultBatch(pendingBatch.ids);
       if (resultBatch.hasOutput) {
         Logger.log(`Network batch finished: ${resultBatch.outputCount} tools. Writing...`, "success");
+        this.options.toolActivityTracker.updateDelivery(resultBatch.ids, "delivering");
         this.options.deliver(resultBatch);
         return;
       }
       if (resultBatch.hasAnyResult) {
         this.options.requestRegistry.markFlushed(resultBatch.ids);
+        this.options.toolActivityTracker.updateDelivery(resultBatch.ids, "delivered");
       }
       this.pendingTurns.shift();
     }
@@ -79,7 +90,18 @@ export class NetworkToolCallController {
     return this.pendingTurns.length > 0;
   }
 
-  private captureCandidate(text: string, turnId: string, codeBlockIndex: number) {
+  public reset(): void {
+    this.pendingTurns.length = 0;
+    this.lastProgressStatus = "";
+    this.lastProgressTime = 0;
+  }
+
+  private captureCandidate(
+    text: string,
+    turnId: string,
+    activityTurnId: string,
+    codeBlockIndex: number
+  ) {
     try {
       const payload = parseToolCall(text);
       const identity = this.options.toolCallTracker.ensureNetworkPayloadRequestIdentity(
@@ -88,6 +110,11 @@ export class NetworkToolCallController {
         codeBlockIndex
       );
       this.options.toolCallTracker.clearProtocolErrorFeedbackState(identity.requestKey);
+      this.options.toolActivityTracker.capture({
+        identity,
+        payload,
+        turnId: activityTurnId,
+      });
       if (!this.options.requestRegistry.hasSeen(identity.requestKey)) {
         this.options.requestRegistry.markRunning(identity.requestKey);
         UI.cancelAutoSend();
@@ -97,12 +124,18 @@ export class NetworkToolCallController {
       }
       return identity;
     } catch (error) {
-      return this.options.toolCallTracker.handleNetworkProtocolError(
+      const identity = this.options.toolCallTracker.handleNetworkProtocolError(
         text,
         turnId,
         codeBlockIndex,
         error
       );
+      this.options.toolActivityTracker.captureProtocolError({
+        identity,
+        message: getErrorMessage(error),
+        turnId: activityTurnId,
+      });
+      return identity;
     }
   }
 
@@ -116,6 +149,10 @@ export class NetworkToolCallController {
     this.lastProgressStatus = status;
     this.lastProgressTime = now;
   }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 interface TurnCandidate {

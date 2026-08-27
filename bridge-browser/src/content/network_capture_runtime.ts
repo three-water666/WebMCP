@@ -1,6 +1,7 @@
 import type { SiteNetworkCaptureConfig } from "@webcode/shared";
 import type { BufferedResultBatch, ToolRequestRegistry } from "./tool_request_registry";
 import type { ToolCallTracker } from "./tool_call_tracker";
+import type { ToolActivityTracker } from "./tool_activity";
 import type { ToolExecutor } from "./tool_executor";
 import { NetworkCaptureBridge } from "./network_capture_bridge";
 import { NetworkToolCallController } from "./network_tool_calls";
@@ -11,6 +12,7 @@ interface NetworkCaptureRuntimeOptions {
   isConnected: () => boolean;
   requestRegistry: ToolRequestRegistry;
   scheduleMainLoop: (delayMs: number) => void;
+  toolActivityTracker: ToolActivityTracker;
   toolCallTracker: ToolCallTracker;
   toolExecutor: ToolExecutor;
 }
@@ -30,7 +32,13 @@ export function createNetworkCaptureRuntime(options: NetworkCaptureRuntimeOption
   });
 
   return {
-    configure: (capture) => bridge.configure(capture),
+    configure: (capture) => {
+      bridge.configure(capture);
+      if (!capture?.enabled) {
+        toolCalls.reset();
+        options.toolActivityTracker.reset();
+      }
+    },
     flushReadyTurn: () => toolCalls.flushReadyTurn(),
     hasPendingTurns: () => toolCalls.hasPendingTurns(),
     shouldSuppressDomCapture: () => bridge.shouldSuppressDomCapture() || toolCalls.hasPendingTurns(),
