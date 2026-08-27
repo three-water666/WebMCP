@@ -9,6 +9,11 @@
     "test:e2e:minimal": "pnpm --filter @webcode/evals run e2e:minimal",
     "eval:scenarios": "pnpm --filter @webcode/evals run scenarios",
     "eval:deepseek": "pnpm --filter @webcode/evals run live:deepseek",
+    "qa:start": "pnpm --filter @webcode/evals run qa:start",
+    "qa:pw": "pnpm --filter @webcode/evals run qa:pw",
+    "qa:ctl": "pnpm --filter @webcode/evals run qa:ctl",
+    "qa:status": "pnpm --filter @webcode/evals run qa:status",
+    "qa:stop": "pnpm --filter @webcode/evals run qa:stop",
     "lint": "eslint .",
     "prepare": "husky"
   },

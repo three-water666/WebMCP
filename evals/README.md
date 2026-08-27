@@ -112,7 +112,7 @@ pnpm eval:scenarios prepare implement-feature-slugify
 命令会输出任务文件、隔离 workspace、Gateway MCP 配置和 run 目录。Agent 完成任务后评分：
 
 ```bash
-pnpm eval:scenarios grade <run-directory>
+pnpm eval:scenarios grade <run-id-or-directory>
 ```
 
 评分结果写入该运行目录的 `grade.json`，同时更新 `run.json`。DeepSeek 真实网页 Runner 会把
@@ -195,3 +195,74 @@ warning，便于修改提示后对比复测。
 - `VSCODE_TEST_VERSION`：没有指定本机 VS Code 时使用的测试版本，默认 `1.106.1`。
 
 运行产物保存在 `evals/runs/`，其中包含隔离工作区、`run.json` 和 `trace.jsonl`。该目录不会提交。
+
+## Agent 主导的交互式 QA
+
+交互式 QA 复用真实 Extension Host、Gateway、browser bridge、持久站点 Profile，以及
+`evals/scenarios` 中的固定任务。页面动作不预先写死，最终结论由 Codex 根据真实使用过程判断。
+不指定场景时仍使用最小 bridge fixture：
+
+```bash
+pnpm qa:start chatgpt
+```
+
+指定 agent-eval 场景时，VS Code 会打开隔离后的代码 workspace 和一个源码文件，并应用场景声明的
+MCP 配置。例如用 DeepSeek 执行固定的代码调用链分析题：
+
+```bash
+pnpm qa:start deepseek read-code-call-chain
+```
+
+命令返回 run id 后，通过仓库固定版本的官方 Playwright CLI 操作站点浏览器或 VS Code Workbench：
+
+```bash
+pnpm qa:pw <run> browser snapshot
+pnpm qa:pw <run> browser click e12
+pnpm qa:pw <run> browser screenshot --filename=browser.png
+pnpm qa:pw <run> vscode snapshot
+```
+
+`qa:pw` 只负责把 run 和 `browser`/`vscode` 目标映射到对应的 Playwright 命名会话，其余参数原样
+传给官方 CLI。特殊页面诊断可继续使用 `console`、`requests`、`tracing-start` 或 `run-code`。
+
+Extension Host 和 Gateway 的内部状态通过控制命令读取：
+
+```bash
+pnpm qa:status <run>
+pnpm qa:ctl <run> task
+pnpm qa:ctl <run> review
+pnpm qa:ctl <run> vscode state
+pnpm qa:ctl <run> vscode config get webcodeGateway.port
+pnpm qa:ctl <run> trace 50
+```
+
+`task` 输出复制到 run 内的固定提示词；只把提示词发给网页模型，不暴露 grader。`review` 汇总
+workspace 文件变化和工具事件时间线，Codex 再检查实际文件、对话、状态和操作阻力，判断任务效果
+以及问题属于模型、站点、bridge、Gateway 还是 VS Code。隐藏 grader 可以在会话停止后作为辅助
+正确性证据运行，但不代替人工体验结论：
+
+```bash
+pnpm eval:scenarios grade <run-id>
+```
+
+浏览器插件 Popup 地址可用 `pnpm qa:ctl <run> popup-url` 读取，再通过 browser 会话的 `tab-new`
+打开。普通标签页与工具栏 popup 的“当前标签”语义不同，打开后使用仓库里的辅助脚本恢复真实目标：
+
+```bash
+pnpm qa:pw <run> browser run-code --filename=scripts/qa-popup-ready.js
+```
+
+所有 `qa:pw` 命令都应顺序执行，即使操作的是不同 target；两类会话共享同一个 CLI daemon，并发调用
+可能造成命名会话竞争。命名会话意外消失时，`qa:pw` 会自动重新连接该 run 的 CDP endpoint。
+带相对 `--filename` 的截图会自动写到当前 run 的 `artifacts/browser/` 或 `artifacts/vscode/`。
+测试完成后必须停止会话：
+
+```bash
+pnpm qa:stop <run>
+```
+
+每个 run 会保留隔离 workspace、两类 Playwright 产物、截图、Gateway trace 和 VS Code/浏览器进程
+日志。VS Code 的 user data 和 extensions 目录同样按 run 隔离；站点登录保存在被忽略的
+`evals/live-profiles/<site-id>/`。如果任一宿主窗口被手动关闭，`qa:status` 会报告 `degraded`。
+验证码、2FA 和高风险审批仍由人工接管。仓库内的 `webcode-browser-qa` Skill 定义了初始化、网络
+捕获、工具状态、审批、结果回填和 VS Code 导航等探索性测试章程。

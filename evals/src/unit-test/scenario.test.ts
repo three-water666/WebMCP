@@ -21,7 +21,8 @@ suite('Eval scenario harness', () => {
 
         assert.strictEqual(scenario.id, 'minimal-tool-loop');
         assert.strictEqual(
-            await fs.readFile(path.join(run.workspacePath, 'seed.txt'), 'utf8'),
+            (await fs.readFile(path.join(run.workspacePath, 'seed.txt'), 'utf8'))
+                .replace(/\r\n/g, '\n'),
             'webcode deterministic fixture\n'
         );
         assert.notStrictEqual(path.resolve(run.workspacePath), path.resolve(scenario.fixturePath));

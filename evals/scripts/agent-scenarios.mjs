@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,9 +33,9 @@ if (command === 'list') {
   console.log(`Run: ${run.runDirectory}`);
 } else if (command === 'grade') {
   if (!argument) {
-    throw new Error('Usage: pnpm eval:scenarios grade <run-directory>');
+    throw new Error('Usage: pnpm eval:scenarios grade <run-id-or-directory>');
   }
-  const { result, gradePath, scenario } = await gradeAgentRun(argument);
+  const { result, gradePath, scenario } = await gradeAgentRun(resolveRunArgument(argument));
   console.log(`${scenario.id}: ${result.passed ? 'passed' : 'failed'} (${result.score}/100)`);
   console.log(`Grade: ${gradePath}`);
   if (!result.passed) {
@@ -42,4 +43,14 @@ if (command === 'list') {
   }
 } else {
   throw new Error(`Unknown agent scenario command: ${command}`);
+}
+
+function resolveRunArgument(value) {
+  const candidates = [
+    path.resolve(value),
+    path.resolve(evalsRoot, '..', value),
+    path.join(evalsRoot, 'runs', value),
+  ];
+  return candidates.find(candidate => fs.existsSync(path.join(candidate, 'run.json')))
+    ?? candidates[0];
 }

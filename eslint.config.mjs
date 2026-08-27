@@ -51,6 +51,9 @@ export default typescriptEslint.config(
             "**/out/**",
             "**/release/**",
             "**/.vscode-test/**",
+            "evals/.playwright-cli/**",
+            "evals/live-profiles/**",
+            "evals/runs/**",
             "gateway-vscode/browser-extension/**",
             "pnpm-lock.yaml"
         ],
