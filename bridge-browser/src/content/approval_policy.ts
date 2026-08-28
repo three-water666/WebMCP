@@ -1,5 +1,6 @@
 import {
   getCommandExecutable,
+  getCommandApprovalContext,
   getCommandPrefix,
   isCommandApprovalScopeAllowed,
   normalizeCommandValue,
@@ -98,7 +99,7 @@ function getCommandApprovalRule(
 ): string | null {
   const command = getPayloadCommand(payload);
   if (!command) {return null;}
-  const context = getCommandApprovalContext(payload);
+  const context = getCommandApprovalContext(payload.name, argsForPayload(payload));
 
   if (scope === "exact") {
     return `command-exact:${payload.name}:${context}:${command}`;
@@ -119,19 +120,14 @@ function getCommandApprovalRule(
   return prefix ? `command-prefix:${payload.name}:${context}:${prefix}` : null;
 }
 
-function getCommandApprovalContext(payload: ToolExecutionPayload): string {
-  const args = isRecord(payload.arguments) ? payload.arguments : {};
-  const path = typeof args.path === "string" && args.path.trim() ? args.path.trim() : ".";
-  const profile = typeof args.profile === "string" && args.profile.trim()
-    ? args.profile.trim()
-    : "default";
-  return `${encodeURIComponent(path)}:${encodeURIComponent(profile)}`;
-}
-
 function getPayloadCommand(payload: ToolExecutionPayload): string | null {
   const args: unknown = payload.arguments;
   if (!isRecord(args)) {return null;}
   return normalizeCommandValue(args.command);
+}
+
+function argsForPayload(payload: ToolExecutionPayload): Record<string, unknown> | undefined {
+  return isRecord(payload.arguments) ? payload.arguments : undefined;
 }
 
 function upgradeLegacyCommandRule(entry: string): string {

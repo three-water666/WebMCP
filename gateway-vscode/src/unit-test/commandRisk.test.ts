@@ -18,8 +18,10 @@ suite('Command Risk', () => {
 
   test('confirms nested shells and blocks encoded PowerShell', () => {
     assert.strictEqual(assessShellCommandRisk('cmd.exe /c dir').level, 'requires_confirmation');
+    assert.strictEqual(assessShellCommandRisk('cmd.exe /K shutdown /s').level, 'requires_confirmation');
     assert.strictEqual(assessShellCommandRisk('pwsh -Command Get-ChildItem').level, 'requires_confirmation');
     assert.strictEqual(assessShellCommandRisk('pwsh -EncodedCommand ZQBjAGgAbwA=').level, 'blocked');
+    assert.strictEqual(assessShellCommandRisk('pwsh --EncodedCommand ZQBjAGgAbwA=').level, 'blocked');
     assert.strictEqual(assessShellCommandRisk('pwsh -e ZQBjAGgAbwA=').level, 'blocked');
   });
 
@@ -108,6 +110,34 @@ suite('Command Risk', () => {
     assert.strictEqual(
       assessShellCommandRisk("pwsh -Command 'Remove-Item -Recurse .'").level,
       'blocked'
+    );
+    assert.strictEqual(
+      assessShellCommandRisk('pwsh -Command Remove-Item -Recurse .').level,
+      'blocked'
+    );
+  });
+
+  test('resolves recursive removals after explicit directory changes', () => {
+    assert.strictEqual(
+      assessShellCommandRisk('cd ../outside && rm -rf cache', riskContext).level,
+      'blocked'
+    );
+    assert.strictEqual(
+      assessShellCommandRisk('cd packages && rm -rf cache', riskContext).level,
+      'requires_confirmation'
+    );
+  });
+
+  test('treats POSIX absolute paths conservatively for Git Bash on Windows', () => {
+    const windowsContext = {
+      workspaceRoot: 'C:\\Users\\me\\project',
+      cwd: 'C:\\Users\\me\\project',
+      platform: 'win32' as const
+    };
+
+    assert.strictEqual(
+      assessShellCommandRisk('cat /Users/me/project/file.txt', windowsContext).level,
+      'requires_confirmation'
     );
   });
 

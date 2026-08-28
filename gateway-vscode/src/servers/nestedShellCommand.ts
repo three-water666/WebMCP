@@ -1,4 +1,5 @@
 import type { TerminalShellKind } from './terminalProfiles';
+import { matchesPowerShellSwitch } from './powershellSwitch';
 import type { ParsedShellCommand, ParsedShellSegment } from './shellCommandParser';
 
 const POSIX_SHELLS = new Set(['bash', 'sh', 'zsh', 'fish']);
@@ -24,10 +25,16 @@ function findLiteralNestedShellCommand(
         return findCommandAfterFlag(segment.args, isPosixCommandFlag, 'posix');
     }
     if (POWERSHELLS.has(segment.commandName)) {
-        return findCommandAfterFlag(segment.args, isPowerShellCommandFlag, 'powershell');
+        return findPowerShellCommandAfterFlag(segment.args);
     }
 
     return null;
+}
+
+function findPowerShellCommandAfterFlag(args: string[]): LiteralNestedShellCommand | null {
+    const flagIndex = args.findIndex(isPowerShellCommandFlag);
+    const command = flagIndex >= 0 ? args.slice(flagIndex + 1).join(' ').trim() : '';
+    return command ? { command, shellKind: 'powershell' } : null;
 }
 
 function findCommandAfterFlag(
@@ -45,11 +52,5 @@ function isPosixCommandFlag(arg: string): boolean {
 }
 
 function isPowerShellCommandFlag(arg: string): boolean {
-    const lower = arg.toLowerCase();
-    if (!lower.startsWith('-') && !lower.startsWith('/')) {
-        return false;
-    }
-
-    const switchName = lower.slice(1).split(':', 1)[0];
-    return switchName.length > 0 && 'command'.startsWith(switchName);
+    return matchesPowerShellSwitch(arg, 'command');
 }

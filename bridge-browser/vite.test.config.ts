@@ -9,6 +9,7 @@ export default defineConfig({
     outDir: "node_modules/.cache/runtime-tests",
     rollupOptions: {
       input: {
+        "approval_policy.test": resolve(__dirname, "test/approval_policy.test.ts"),
         "network_capture_runtime.test": resolve(__dirname, "test/network_capture_runtime.test.ts"),
       },
       output: {

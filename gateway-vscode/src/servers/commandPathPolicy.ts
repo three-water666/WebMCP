@@ -1,8 +1,10 @@
 import * as path from 'path';
+import { resolveWorkingDirectoryChange } from './commandWorkingDirectory';
 import type { CommandRiskContext, CommandRiskIssue } from './commandRiskTypes';
 import type { ParsedShellCommand, ParsedShellSegment } from './shellCommandParser';
 import { isNonFileSystemPowerShellProvider, isShellControlOption } from './powershellPathPolicy';
 import { assessRecursiveRemoveTargets } from './recursiveRemovalPolicy';
+import { getPathModule, isInsideDirectory, isUnverifiableMsysAbsolutePath } from './shellPathSemantics';
 
 const POSIX_PATH_COMMANDS = new Set([
     'cat',
@@ -75,7 +77,17 @@ const POWERSHELL_PATH_OPTIONS = new Set([
 type PathCheckMode = 'obvious' | 'argument';
 
 export function assessPathPolicy(parsed: ParsedShellCommand, context: CommandRiskContext = {}): CommandRiskIssue[] {
-    return parsed.segments.flatMap(segment => assessSegmentPathPolicy(parsed, segment, context));
+    const issues: CommandRiskIssue[] = [];
+    let activeContext = context;
+    for (const segment of parsed.segments) {
+        issues.push(...assessSegmentPathPolicy(parsed, segment, activeContext));
+        const directoryChange = resolveWorkingDirectoryChange(parsed, segment, activeContext);
+        if (directoryChange.changed) {
+            activeContext = { ...activeContext, cwd: directoryChange.cwd };
+        }
+    }
+
+    return issues;
 }
 
 function assessSegmentPathPolicy(
@@ -102,12 +114,15 @@ function assessPathCommandArguments(
 
     const args = collectCommandPathArgs(parsed, segment);
     const issues = args.flatMap(arg => assessPathToken(arg, parsed, context, 'argument'));
-    return isRecursiveRemove(segment)
-        ? issues.concat(assessRecursiveRemoveTargets(args, target => {
-            const candidate = normalizePathCandidate(target);
-            return isDynamicPathReference(candidate) || isPathInsideWorkspace(candidate, parsed, context);
-        }))
-        : issues;
+    if (!isRecursiveRemove(segment)) {
+        return issues;
+    }
+
+    const recursiveTargets = [...args, ...collectPathOptionValues(parsed, segment)];
+    return issues.concat(assessRecursiveRemoveTargets(recursiveTargets, target => {
+        const candidate = normalizePathCandidate(target);
+        return isDynamicPathReference(candidate) || isPathInsideWorkspace(candidate, parsed, context);
+    }));
 }
 
 function assessObviousPathEscapes(
@@ -272,20 +287,31 @@ function isPathInsideWorkspace(
     parsed: ParsedShellCommand,
     context: CommandRiskContext
 ): boolean {
-    if (!context.workspaceRoot || !context.cwd) {
+    if (!context.workspaceRoot) {
         return !isObviousPathEscape(candidate, parsed);
     }
-    const resolved = resolveCandidatePath(candidate, context.cwd, parsed);
+    if (!context.cwd || isUnverifiableMsysAbsolutePath(candidate, parsed.shellKind, context.platform)) {
+        return false;
+    }
+
+    const pathModule = getPathModule(context.platform);
+    const resolved = resolveCandidatePath(candidate, context.cwd, parsed, context.platform);
     const allowedRoots = [context.workspaceRoot, ...(context.allowedRoots ?? [])]
-        .map(root => path.resolve(path.normalize(root)));
-    return allowedRoots.some(root => isInsideDirectory(resolved, root));
+        .map(root => pathModule.resolve(pathModule.normalize(root)));
+    return allowedRoots.some(root => isInsideDirectory(resolved, root, pathModule));
 }
 
-function resolveCandidatePath(candidate: string, cwd: string, parsed: ParsedShellCommand): string {
+function resolveCandidatePath(
+    candidate: string,
+    cwd: string,
+    parsed: ParsedShellCommand,
+    platform: NodeJS.Platform | undefined
+): string {
     const withoutGlob = stripGlobTail(candidate, parsed);
-    return path.isAbsolute(withoutGlob)
-        ? path.resolve(path.normalize(withoutGlob))
-        : path.resolve(cwd, path.normalize(withoutGlob));
+    const pathModule = getPathModule(platform);
+    return pathModule.isAbsolute(withoutGlob) || /^[a-z]:[\\/]/i.test(withoutGlob)
+        ? pathModule.resolve(pathModule.normalize(withoutGlob))
+        : pathModule.resolve(cwd, pathModule.normalize(withoutGlob));
 }
 
 function stripGlobTail(candidate: string, parsed: ParsedShellCommand): string {
@@ -430,13 +456,6 @@ function isPathOptionName(value: string, parsed: ParsedShellCommand, commandName
 
 function getPosixCommandPathOptions(commandName: string): ReadonlySet<string> {
     return POSIX_COMMAND_PATH_OPTIONS.get(commandName) ?? EMPTY_PATH_OPTIONS;
-}
-
-function isInsideDirectory(filePath: string, directory: string): boolean {
-    const normalizedPath = path.resolve(path.normalize(filePath));
-    const normalizedDirectory = path.resolve(path.normalize(directory));
-    return normalizedPath === normalizedDirectory
-        || normalizedPath.startsWith(normalizedDirectory.endsWith(path.sep) ? normalizedDirectory : `${normalizedDirectory}${path.sep}`);
 }
 
 const blocked = (reason: string): CommandRiskIssue => ({ level: 'blocked', reason });

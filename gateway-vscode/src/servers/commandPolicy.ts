@@ -1,4 +1,5 @@
 import type { CommandRiskIssue } from './commandRiskTypes';
+import { matchesPowerShellSwitch } from './powershellSwitch';
 import type { ParsedShellCommand, ParsedShellSegment } from './shellCommandParser';
 
 const POSIX_BLOCKED_COMMANDS = new Map<string, string>([
@@ -254,18 +255,8 @@ function hasEncodedPowerShellCommandFlag(args: string[]): boolean {
     return args.some(arg => matchesPowerShellSwitch(arg, 'encodedcommand'));
 }
 
-function matchesPowerShellSwitch(arg: string, fullName: string): boolean {
-    const lower = arg.toLowerCase();
-    if (!lower.startsWith('-') && !lower.startsWith('/')) {
-        return false;
-    }
-
-    const switchName = lower.slice(1).split(':', 1)[0];
-    return switchName.length > 0 && fullName.startsWith(switchName);
-}
-
 function hasCmdCommandFlag(args: string[]): boolean {
-    return args.some(arg => arg.toLowerCase() === '/c');
+    return args.some(arg => ['/c', '/k'].includes(arg.toLowerCase()));
 }
 
 function isForcePushFlag(arg: string): boolean {

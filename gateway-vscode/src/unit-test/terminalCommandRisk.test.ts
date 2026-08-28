@@ -25,16 +25,36 @@ suite('Terminal Command Risk', () => {
 
   test('confirms nested shells and blocks encoded PowerShell', () => {
     assert.strictEqual(assessTerminalCommandRisk('& cmd /c echo hi', 'powershell').level, 'requires_confirmation');
+    assert.strictEqual(assessTerminalCommandRisk('& cmd /K shutdown /s', 'powershell').level, 'requires_confirmation');
     assert.strictEqual(assessTerminalCommandRisk('& pwsh -c echo hi', 'powershell').level, 'requires_confirmation');
     assert.strictEqual(assessTerminalCommandRisk('pwsh -EncodedCommand ZQBjAGgAbwAgAGgAaQA=', 'powershell').level, 'blocked');
+    assert.strictEqual(assessTerminalCommandRisk('pwsh --EncodedCommand ZQBjAGgAbwAgAGgAaQA=', 'powershell').level, 'blocked');
     assert.strictEqual(assessTerminalCommandRisk('pwsh -en ZQBjAGgAbwAgAGgAaQA=', 'powershell').level, 'blocked');
     assert.strictEqual(assessTerminalCommandRisk('powershell.exe /enc ZQBjAGgAbwAgAGgAaQA=', 'powershell').level, 'blocked');
   });
 
   test('marks dangerous PowerShell removals as rejected', () => {
     assert.strictEqual(assessTerminalCommandRisk('Remove-Item -Recurse .', 'powershell').level, 'blocked');
+    assert.strictEqual(assessTerminalCommandRisk('Remove-Item -Path . -Recurse', 'powershell').level, 'blocked');
+    assert.strictEqual(
+      assessTerminalCommandRisk('Remove-Item -LiteralPath ../outside -Recurse', 'powershell', riskContext).level,
+      'blocked'
+    );
     assert.strictEqual(assessTerminalCommandRisk('ri -Recurse .', 'powershell').level, 'blocked');
     assert.strictEqual(assessTerminalCommandRisk('rm -Recurse node_modules', 'powershell').level, 'requires_confirmation');
+  });
+
+  test('allows confirmation for recursive path-option targets in configured roots', () => {
+    const externalRoot = path.resolve(workspaceRoot, '..', 'shared');
+    const externalPath = externalRoot.replace(/\\/g, '/');
+
+    assert.strictEqual(
+      assessTerminalCommandRisk(`Remove-Item -Path ${externalPath} -Recurse`, 'powershell', {
+        ...riskContext,
+        allowedRoots: [externalRoot]
+      }).level,
+      'requires_confirmation'
+    );
   });
 
   test('marks destructive git operations in PowerShell as rejected', () => {
@@ -77,6 +97,21 @@ suite('Terminal Command Risk', () => {
   test('blocks catastrophic literal commands nested in PowerShell', () => {
     assert.strictEqual(
       assessTerminalCommandRisk("pwsh -Command 'Remove-Item -Recurse .'", 'powershell').level,
+      'blocked'
+    );
+    assert.strictEqual(
+      assessTerminalCommandRisk('pwsh -Command Remove-Item -Recurse .', 'powershell').level,
+      'blocked'
+    );
+  });
+
+  test('resolves recursive removals after PowerShell directory changes', () => {
+    assert.strictEqual(
+      assessTerminalCommandRisk(
+        'Set-Location ../outside; Remove-Item -Recurse cache',
+        'powershell',
+        riskContext
+      ).level,
       'blocked'
     );
   });

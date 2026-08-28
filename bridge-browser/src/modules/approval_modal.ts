@@ -1,6 +1,7 @@
 import { type ToolExecutionPayload } from "../types";
 import {
   getCommandExecutable,
+  getCommandApprovalContext,
   getCommandPrefix,
   isCommandApprovalScopeAllowed,
   isBroadCommandExecutable,
@@ -241,7 +242,7 @@ function getCommandApprovalDetails(payload: ToolExecutionPayload): CommandApprov
     )
   );
   const prefixValue = getCommandPrefix(commandValue) ?? "";
-  const contextValue = getCommandContextValue(payload);
+  const contextValue = getCommandApprovalContext(payload.name, payload.arguments);
 
   return {
     commandValue,
@@ -255,15 +256,6 @@ function getCommandApprovalDetails(payload: ToolExecutionPayload): CommandApprov
       ? escapeHtml(`command-prefix:${payload.name}:${contextValue}:${prefixValue}`)
       : "",
   };
-}
-
-function getCommandContextValue(payload: ToolExecutionPayload): string {
-  const args = payload.arguments ?? {};
-  const path = typeof args.path === "string" && args.path.trim() ? args.path.trim() : ".";
-  const profile = typeof args.profile === "string" && args.profile.trim()
-    ? args.profile.trim()
-    : "default";
-  return `${encodeURIComponent(path)}:${encodeURIComponent(profile)}`;
 }
 
 function isCommandApprovalPayload(toolName: string, commandValue: string): boolean {
