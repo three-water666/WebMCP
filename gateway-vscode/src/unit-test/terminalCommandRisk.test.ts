@@ -36,6 +36,9 @@ suite('Terminal Command Risk', () => {
   test('marks dangerous PowerShell removals as rejected', () => {
     assert.strictEqual(assessTerminalCommandRisk('Remove-Item -Recurse .', 'powershell').level, 'blocked');
     assert.strictEqual(assessTerminalCommandRisk('Remove-Item -Path . -Recurse', 'powershell').level, 'blocked');
+    assert.strictEqual(assessTerminalCommandRisk('Remove-Item -Recurse -Path:C:\\', 'powershell').level, 'blocked');
+    assert.strictEqual(assessTerminalCommandRisk('Remove-Item -Recurse -Pa:C:\\', 'powershell').level, 'blocked');
+    assert.strictEqual(assessTerminalCommandRisk('Remove-Item -Recurse -Pa C:\\', 'powershell').level, 'blocked');
     assert.strictEqual(
       assessTerminalCommandRisk('Remove-Item -LiteralPath ../outside -Recurse', 'powershell', riskContext).level,
       'blocked'
@@ -109,6 +112,22 @@ suite('Terminal Command Risk', () => {
     assert.strictEqual(
       assessTerminalCommandRisk(
         'Set-Location ../outside; Remove-Item -Recurse cache',
+        'powershell',
+        riskContext
+      ).level,
+      'blocked'
+    );
+    assert.strictEqual(
+      assessTerminalCommandRisk(
+        'Set-Location -Path:../outside; Remove-Item -Recurse cache',
+        'powershell',
+        riskContext
+      ).level,
+      'blocked'
+    );
+    assert.strictEqual(
+      assessTerminalCommandRisk(
+        'Set-Location -Lit:../outside; Remove-Item -Recurse cache',
         'powershell',
         riskContext
       ).level,

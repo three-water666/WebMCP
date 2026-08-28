@@ -126,6 +126,25 @@ suite('Command Risk', () => {
       assessShellCommandRisk('cd packages && rm -rf cache', riskContext).level,
       'requires_confirmation'
     );
+    assert.strictEqual(
+      assessShellCommandRisk('cd packages && rm -rf ./../outside', riskContext).level,
+      'requires_confirmation'
+    );
+  });
+
+  test('does not carry POSIX directory changes through pipelines', () => {
+    assert.strictEqual(
+      assessShellCommandRisk('cd packages | rm -rf ./../outside', riskContext).level,
+      'blocked'
+    );
+    assert.strictEqual(
+      assessShellCommandRisk('echo ok | cd packages; rm -rf ./../outside', riskContext).level,
+      'blocked'
+    );
+    assert.strictEqual(
+      assessShellCommandRisk('cd packages & rm -rf ./../outside', riskContext).level,
+      'blocked'
+    );
   });
 
   test('treats POSIX absolute paths conservatively for Git Bash on Windows', () => {

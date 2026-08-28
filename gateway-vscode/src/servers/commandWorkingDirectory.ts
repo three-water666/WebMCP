@@ -23,6 +23,19 @@ export type WorkingDirectoryChange = {
     cwd?: string;
 };
 
+export function canCarryWorkingDirectoryChange(
+    parsed: ParsedShellCommand,
+    segment: ParsedShellSegment
+): boolean {
+    if (parsed.shellKind !== 'posix') {
+        return true;
+    }
+
+    return segment.operatorBefore !== '|'
+        && segment.operatorAfter !== '|'
+        && segment.operatorAfter !== '&';
+}
+
 export function resolveWorkingDirectoryChange(
     parsed: ParsedShellCommand,
     segment: ParsedShellSegment,
@@ -88,13 +101,13 @@ function getPowerShellPathOptionValue(
         return null;
     }
 
-    const equalsIndex = arg.indexOf('=');
-    const option = (equalsIndex > 0 ? arg.slice(0, equalsIndex) : arg).toLowerCase();
-    if (!POWERSHELL_DIRECTORY_PATH_OPTIONS.has(option)) {
+    const separatorIndex = arg.search(/[:=]/);
+    const option = (separatorIndex > 0 ? arg.slice(0, separatorIndex) : arg).toLowerCase();
+    if (option.length <= 1 || ![...POWERSHELL_DIRECTORY_PATH_OPTIONS].some(name => name.startsWith(option))) {
         return null;
     }
 
-    return equalsIndex > 0 ? arg.slice(equalsIndex + 1) : (next ?? '');
+    return separatorIndex > 0 ? arg.slice(separatorIndex + 1) : (next ?? '');
 }
 
 function isUnverifiableTarget(

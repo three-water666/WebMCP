@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { resolveWorkingDirectoryChange } from './commandWorkingDirectory';
+import { canCarryWorkingDirectoryChange, resolveWorkingDirectoryChange } from './commandWorkingDirectory';
 import type { CommandRiskContext, CommandRiskIssue } from './commandRiskTypes';
 import type { ParsedShellCommand, ParsedShellSegment } from './shellCommandParser';
 import { isNonFileSystemPowerShellProvider, isShellControlOption } from './powershellPathPolicy';
@@ -82,7 +82,7 @@ export function assessPathPolicy(parsed: ParsedShellCommand, context: CommandRis
     for (const segment of parsed.segments) {
         issues.push(...assessSegmentPathPolicy(parsed, segment, activeContext));
         const directoryChange = resolveWorkingDirectoryChange(parsed, segment, activeContext);
-        if (directoryChange.changed) {
+        if (directoryChange.changed && canCarryWorkingDirectoryChange(parsed, segment)) {
             activeContext = { ...activeContext, cwd: directoryChange.cwd };
         }
     }
@@ -420,11 +420,10 @@ function getPathOptionName(
     parsed: ParsedShellCommand,
     commandName: string
 ): { inline: false } | { inline: true; value: string } | null {
-    const equalsIndex = arg.indexOf('=');
-    const lower = arg.toLowerCase();
-    if (equalsIndex > 0) {
-        const option = lower.slice(0, equalsIndex);
-        return isPathOptionName(option, parsed, commandName) ? { inline: true, value: arg.slice(equalsIndex + 1) } : null;
+    const separatorIndex = parsed.shellKind === 'powershell' ? arg.search(/[:=]/) : arg.indexOf('=');
+    if (separatorIndex > 0) {
+        const option = arg.slice(0, separatorIndex);
+        return isPathOptionName(option, parsed, commandName) ? { inline: true, value: arg.slice(separatorIndex + 1) } : null;
     }
 
     if (isPathOptionName(arg, parsed, commandName)) {
@@ -448,7 +447,7 @@ function isPathOptionName(value: string, parsed: ParsedShellCommand, commandName
         return true;
     }
     if (parsed.shellKind === 'powershell') {
-        return POWERSHELL_PATH_OPTIONS.has(value.toLowerCase());
+        return value.length > 1 && [...POWERSHELL_PATH_OPTIONS].some(option => option.startsWith(value.toLowerCase()));
     }
 
     return getPosixCommandPathOptions(commandName).has(value);
