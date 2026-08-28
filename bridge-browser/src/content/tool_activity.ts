@@ -63,11 +63,7 @@ const TERMINAL_STATUSES = new Set<ToolActivityStatus>([
 ]);
 const MAX_RETAINED_TURNS = 8;
 
-/**
- * Stores user-facing network tool activity independently from execution control state.
- * DOM-captured calls can still emit executor updates, but updates are ignored unless a
- * network turn registered the request first.
- */
+/** Stores user-facing tool activity independently from execution control state. */
 export class ToolActivityTracker {
   private readonly items = new Map<string, ToolActivityItem>();
   private readonly listeners = new Set<ToolActivityListener>();

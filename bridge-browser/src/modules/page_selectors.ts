@@ -3,6 +3,7 @@ import { isElementVisible } from "./dom_helpers";
 
 export interface LatestResponseCodeBlocks {
   messageIndex: number;
+  messageElement: Element;
   codeElements: Element[];
 }
 
@@ -92,6 +93,7 @@ export function getLatestResponseCodeBlocks(
 
   return {
     messageIndex,
+    messageElement: lastMessage,
     codeElements,
   };
 }

@@ -10,6 +10,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         "approval_policy.test": resolve(__dirname, "test/approval_policy.test.ts"),
+        "dom_tool_activity.test": resolve(__dirname, "test/dom_tool_activity.test.ts"),
         "network_capture_runtime.test": resolve(__dirname, "test/network_capture_runtime.test.ts"),
       },
       output: {

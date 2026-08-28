@@ -11,6 +11,7 @@ import {
 import { AutoInitPromptController } from "./auto_init_prompt";
 import { createApprovalState, parseStoredApprovalEntries, type ApprovalState } from "./approval_policy";
 import { CompletionNotifier } from "./completion_notifier";
+import { DomToolActivityController } from "./dom_tool_activity";
 import { hasPromptResourceChange, loadPromptsFromStorage } from "./prompt_resources";
 import { createNetworkCaptureRuntime } from "./network_capture_runtime";
 import { ResultDeliveryController } from "./result_delivery_controller";
@@ -192,6 +193,7 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
   if (matchedSite && isSiteSelectors(matchedSite.selectors)) {
     DOM = matchedSite.selectors;
     currentSiteName = matchedSite.name ?? matchedSite.id;
+    domToolActivity.reset();
     networkCapture.configure(getSiteNetworkCaptureConfig(matchedSite.capture));
     completionNotifier.reset();
     autoInitPrompt.setupTrigger();
@@ -203,11 +205,13 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
 
   DOM = null;
   currentSiteName = null;
+  domToolActivity.reset();
   networkCapture.reset();
   console.log(`${BRANDING.productName}: Site '${siteId}' is not configured in VS Code. Idle.`);
 }
 
 function resetCurrentSite(): void {
+  domToolActivity.reset();
   networkCapture.reset();
   DOM = null;
   currentSiteName = null;
@@ -238,6 +242,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 // 统一管理工具调用内部 requestKey 的生命周期：已发现、执行中、结果缓存、已回填，以及当前轮次去重。
 const requestRegistry = new ToolRequestRegistry();
 const toolActivityTracker = new ToolActivityTracker();
+const domToolActivity = new DomToolActivityController(toolActivityTracker);
 new ToolActivityOverlay(toolActivityTracker);
 let lastProgressLogTime = 0;
 let lastProgressStatus = "";
@@ -334,7 +339,7 @@ function runMainLoop() {
   const latestCodeBlocks = UI.getLatestResponseCodeBlocks(DOM);
   if (!latestCodeBlocks) { return; }
 
-  const { messageIndex, codeElements } = latestCodeBlocks;
+  const { messageElement, messageIndex, codeElements } = latestCodeBlocks;
   const skipNewCapturesForVirtualizedHistory = UI.isLikelyViewingVirtualizedHistory(DOM);
 
   // 当前轮次对象只记录本次扫描看到的 requestKey；去重、排序和已回填过滤由 registry 统一处理。
@@ -375,6 +380,11 @@ function runMainLoop() {
       if (!isKnown) {
         // 新发现的工具调用只进入执行路径一次，后续扫描只会根据 registry 中的执行状态刷新视觉状态。
         requestRegistry.markRunning(requestIdentity.requestKey);
+        domToolActivity.capture({
+          identity: requestIdentity,
+          messageElement,
+          payload,
+        });
 
         // 页面上出现新工具调用时，先取消已有自动发送，避免还没写回工具结果就把输入框发出去。
         UI.cancelAutoSend();
@@ -438,6 +448,7 @@ function runMainLoop() {
         // 某些路径可能没有文本输出；它们完成后也要标记为已处理。
         if (resultBatch.hasAnyResult) {
           requestRegistry.markFlushed(resultBatch.ids);
+          toolActivityTracker.updateDelivery(resultBatch.ids, "delivered");
         }
       }
       lastProgressStatus = "";
