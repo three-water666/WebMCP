@@ -203,12 +203,12 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
 
   DOM = null;
   currentSiteName = null;
-  networkCapture.configure(null);
+  networkCapture.reset();
   console.log(`${BRANDING.productName}: Site '${siteId}' is not configured in VS Code. Idle.`);
 }
 
 function resetCurrentSite(): void {
-  networkCapture.configure(null);
+  networkCapture.reset();
   DOM = null;
   currentSiteName = null;
   currentSiteId = null;

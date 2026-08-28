@@ -20,10 +20,12 @@ interface NetworkToolCallControllerOptions {
 
 interface PendingNetworkTurn {
   captureId: string;
+  generation: number;
   requestKeys: string[];
 }
 
 export class NetworkToolCallController {
+  private generation = 0;
   private readonly pendingTurns: PendingNetworkTurn[] = [];
   private lastProgressStatus = "";
   private lastProgressTime = 0;
@@ -36,6 +38,7 @@ export class NetworkToolCallController {
       return false;
     }
 
+    const generation = this.generation;
     this.options.toolActivityTracker.beginTurn(event.captureId);
     const requestKeys: string[] = [];
     candidates.forEach((candidate) => {
@@ -43,11 +46,12 @@ export class NetworkToolCallController {
         candidate.text,
         candidate.turnId,
         event.captureId,
-        candidate.index
+        candidate.index,
+        generation
       );
       requestKeys.push(identity.requestKey);
     });
-    this.pendingTurns.push({ captureId: event.captureId, requestKeys });
+    this.pendingTurns.push({ captureId: event.captureId, generation, requestKeys });
     this.options.scheduleMainLoop(0);
     return true;
   }
@@ -55,6 +59,10 @@ export class NetworkToolCallController {
   public flushReadyTurn(): void {
     while (this.pendingTurns.length > 0) {
       const pendingTurn = this.pendingTurns[0];
+      if (pendingTurn.generation !== this.generation) {
+        this.pendingTurns.shift();
+        continue;
+      }
       const pendingBatch = this.options.requestRegistry.getUnflushedBatch(pendingTurn.requestKeys);
       if (!pendingBatch.hasRequests) {
         this.pendingTurns.shift();
@@ -91,6 +99,7 @@ export class NetworkToolCallController {
   }
 
   public reset(): void {
+    this.generation++;
     this.pendingTurns.length = 0;
     this.lastProgressStatus = "";
     this.lastProgressTime = 0;
@@ -100,13 +109,14 @@ export class NetworkToolCallController {
     text: string,
     turnId: string,
     activityTurnId: string,
-    codeBlockIndex: number
+    codeBlockIndex: number,
+    generation: number
   ) {
     try {
       const payload = parseToolCall(text);
       const identity = this.options.toolCallTracker.ensureNetworkPayloadRequestIdentity(
         payload,
-        turnId,
+        `${generation}:${turnId}`,
         codeBlockIndex
       );
       this.options.toolCallTracker.clearProtocolErrorFeedbackState(identity.requestKey);

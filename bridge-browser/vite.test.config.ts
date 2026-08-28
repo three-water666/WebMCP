@@ -1,0 +1,27 @@
+import { resolve } from "node:path";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  build: {
+    emptyOutDir: true,
+    minify: false,
+    modulePreload: false,
+    outDir: "node_modules/.cache/runtime-tests",
+    rollupOptions: {
+      input: {
+        "network_capture_runtime.test": resolve(__dirname, "test/network_capture_runtime.test.ts"),
+      },
+      output: {
+        chunkFileNames: "chunks/[name]-[hash].js",
+        entryFileNames: "[name].js",
+      },
+    },
+    target: "es2022",
+  },
+  publicDir: false,
+  resolve: {
+    alias: {
+      "@webcode/shared": resolve(__dirname, "../shared/src/index.ts"),
+    },
+  },
+});
