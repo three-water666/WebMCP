@@ -91,10 +91,26 @@ Skill 和 MCP 场景除了检查最终文件，还会检查 Gateway trace 中的
 6. bridge 把写入结果回填并自动发送。
 7. 测试检查新文件内容、两次工具结果和结构化事件轨迹。
 
+`command-risk-approval` 是独立的确定性 Contract E2E，专门验证命令安全链路：
+
+1. 普通 `&&` 复合命令显示浏览器普通审批，并保留“永久允许”入口。
+2. `execute_command` inline eval 显示 Gateway 返回的风险原因，隐藏“永久允许”。
+3. 用户确认后，单次令牌能够让命令通过 Gateway 复检并执行。
+4. `run_in_terminal` 使用同一套强制确认和单次令牌流程。
+5. encoded PowerShell 被直接拒绝，不显示审批弹窗，也不产生 Gateway 执行事件。
+
+场景中的命令只读取版本或输出固定文本，不执行真实破坏操作。
+
 ## 命令
 
 ```bash
 pnpm test:e2e:minimal
+```
+
+运行命令风险审批 E2E：
+
+```bash
+pnpm test:e2e:command-risk
 ```
 
 列出首批真实任务：

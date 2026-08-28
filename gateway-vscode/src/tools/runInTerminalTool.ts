@@ -1,14 +1,21 @@
-import type { LocalTool, ToolDefinition } from './types';
+import type {
+    LocalTool,
+    ToolDefinition,
+    ToolExecutionContext,
+    ToolRiskPreflight
+} from './types';
 import { errorResult, jsonResult } from './result';
 import { WORKSPACE_COMMAND_PATH_DESCRIPTION, resolveWorkspaceRelativeDirectory } from './workspacePath';
 import { normalizeShellCommand } from '../servers/commandShell';
-import { assertTerminalCommandRiskAllowed } from '../servers/terminalCommandRisk';
+import { formatCommandRiskAssessment } from '../servers/commandRisk';
 import {
     describeTerminalProfiles,
     listTerminalProfiles,
-    resolveTerminalProfile
+    resolveTerminalProfile,
+    type WebcodeTerminalProfile
 } from '../servers/terminalProfiles';
 import { getErrorMessage } from '../gateway/errorUtils';
+import { assessCommandToolRisk } from '../servers/commandToolRisk';
 
 export const runInTerminalTool: LocalTool = {
     serverId: 'internal',
@@ -29,34 +36,29 @@ export const runInTerminalTool: LocalTool = {
     getDefinition(context) {
         return createRunInTerminalDefinition(context.commandShellPath);
     },
+    async assessRisk(args, context) {
+        return (await resolveRunInTerminalRequest(args, context)).risk;
+    },
     async execute(args, context) {
         if (!context.workspaceRoot) {
             return errorResult('Security Error: A VS Code workspace folder is required to run terminal commands.');
         }
 
         try {
-            if ('cwd' in args) {
-                return errorResult('Parameter "cwd" has been removed. Use workspace-relative "path" instead.');
+            const request = await resolveRunInTerminalRequest(args, context);
+            if (request.risk.assessment.level === 'blocked') {
+                return errorResult(`Security Error: ${formatCommandRiskAssessment(request.risk.assessment)}`);
             }
-
-            const commandLine = normalizeShellCommand(args.command);
-            const profile = resolveTerminalProfile(args.profile, {
-                platform: process.platform,
-                env: process.env,
-                configuredCommandShellPath: context.commandShellPath
-            });
-            const directory = await resolveWorkspaceRelativeDirectory(context.workspaceRoot, args.path ?? '.');
-            assertTerminalCommandRiskAllowed(commandLine, profile.shellKind, {
-                workspaceRoot: context.workspaceRoot,
-                cwd: directory.absolutePath,
-                platform: process.platform
-            });
+            if (request.risk.assessment.level === 'requires_confirmation'
+                && context.approvedCommandFingerprint !== request.risk.fingerprint) {
+                return errorResult(`Approval Required: ${formatCommandRiskAssessment(request.risk.assessment)}`);
+            }
             const session = context.terminalSessionManager.createSession({
-                commandLine,
-                cwd: directory.absolutePath,
-                path: directory.relativePath,
+                commandLine: request.commandLine,
+                cwd: request.absolutePath,
+                path: request.commandPath,
                 env: { ...process.env },
-                profile,
+                profile: request.profile,
                 autoFocus: args.auto_focus !== false
             });
 
@@ -68,8 +70,8 @@ export const runInTerminalTool: LocalTool = {
                 command: session.command,
                 profile: session.profile,
                 shell: {
-                    id: profile.id,
-                    syntax: profile.syntax
+                    id: request.profile.id,
+                    syntax: request.profile.syntax
                 }
             });
         } catch (error: unknown) {
@@ -77,6 +79,55 @@ export const runInTerminalTool: LocalTool = {
         }
     }
 };
+
+type ResolvedRunInTerminalRequest = {
+    absolutePath: string;
+    commandLine: string;
+    commandPath: string;
+    profile: WebcodeTerminalProfile;
+    risk: ToolRiskPreflight;
+};
+
+async function resolveRunInTerminalRequest(
+    args: Record<string, unknown>,
+    context: ToolExecutionContext
+): Promise<ResolvedRunInTerminalRequest> {
+    if ('cwd' in args) {
+        throw new Error('Parameter "cwd" has been removed. Use workspace-relative "path" instead.');
+    }
+    if (!context.workspaceRoot) {
+        throw new Error('A VS Code workspace folder is required to run terminal commands.');
+    }
+
+    const commandLine = normalizeShellCommand(args.command);
+    const profile = resolveTerminalProfile(args.profile, {
+        platform: process.platform,
+        env: process.env,
+        configuredCommandShellPath: context.commandShellPath
+    });
+    const directory = await resolveWorkspaceRelativeDirectory(context.workspaceRoot, args.path ?? '.');
+    const risk = assessCommandToolRisk({
+        command: commandLine,
+        commandPath: directory.relativePath,
+        profileId: `${profile.id}\0${profile.resolvedPath ?? profile.shellPath ?? ''}`,
+        shellKind: profile.shellKind,
+        toolName: 'run_in_terminal',
+        riskContext: {
+            workspaceRoot: context.workspaceRoot,
+            cwd: directory.absolutePath,
+            allowedRoots: context.commandAllowedRoots,
+            platform: process.platform
+        }
+    });
+
+    return {
+        absolutePath: directory.absolutePath,
+        commandLine,
+        commandPath: directory.relativePath,
+        profile,
+        risk
+    };
+}
 
 function createRunInTerminalDefinition(commandShellPath?: string): ToolDefinition {
     const profiles = listTerminalProfiles({

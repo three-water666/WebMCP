@@ -201,6 +201,14 @@
           "default": "",
           "description": "Optional path to the POSIX shell used by execute_command and run_in_terminal. On Windows this should point to Git Bash bash.exe. Leave empty to auto-detect Git Bash on Windows or use the user/system POSIX shell on macOS and Linux."
         },
+        "webcodeGateway.command.allowedRoots": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional absolute directories trusted by command path risk checks. Paths outside trusted roots require per-command approval. Supports ~ and ${workspaceFolder}."
+        },
         "webcodeGateway.ripgrep.path": {
           "type": "string",
           "default": "",

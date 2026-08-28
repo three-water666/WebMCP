@@ -4,6 +4,7 @@ export {
   type CommandApprovalScope,
 } from "./command_approval";
 export {
+  type ApprovalModalOptions,
   showConfirmationModal,
 } from "./approval_modal";
 export {

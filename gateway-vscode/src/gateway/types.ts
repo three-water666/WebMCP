@@ -21,6 +21,7 @@ export interface GatewayConfig {
     aiSites?: ResolvedAiSiteConfig[];
     skillDirectories?: string[];
     commandShellPath?: string;
+    commandAllowedRoots?: string[];
 }
 
 export interface StartResult {

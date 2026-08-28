@@ -15,8 +15,10 @@ import { getErrorMessage } from './errorUtils';
 import { resolveLocalPathArguments } from './pathArguments';
 import type { GatewayErrorLogger, GatewayLogger, RemoteToolRoute } from './types';
 import type { GatewayRuntimeTraceSink } from './runtimeTrace';
+import type { CommandApprovalManager } from './commandApproval';
 
 type ToolCallHandlerOptions = {
+    commandApprovalManager: CommandApprovalManager;
     createToolExecutionContext: () => ToolExecutionContext;
     error: GatewayErrorLogger;
     getToolDefinition: (name: string) => ToolDefinition | null;
@@ -28,6 +30,7 @@ type ToolCallHandlerOptions = {
 };
 
 type ParsedToolCallRequest = {
+    approvalToken?: string;
     args: Record<string, unknown>;
     name: string;
     requestId?: string;
@@ -77,12 +80,68 @@ export function createToolCallHandler(options: ToolCallHandlerOptions): express.
     };
 }
 
+export function createToolPreflightHandler(options: ToolCallHandlerOptions): express.RequestHandler {
+    return async (req, res) => {
+        const parsed = parseToolCallRequest(req.body, res, options);
+        if (!parsed) {
+            return;
+        }
+
+        const localTool = options.localTools.get(parsed.name);
+        if (!localTool?.assessRisk) {
+            return res.json({ risk: { level: 'allowed', reasons: [] } });
+        }
+
+        try {
+            const context = options.createToolExecutionContext();
+            const preflight = await localTool.assessRisk(parsed.args, context);
+            if (preflight.assessment.level !== 'requires_confirmation') {
+                return res.json({ risk: preflight.assessment });
+            }
+
+            const challenge = options.commandApprovalManager.issueChallenge(preflight.fingerprint);
+            return res.json({
+                risk: preflight.assessment,
+                challenge: {
+                    id: challenge.challengeId,
+                    expires_at: challenge.expiresAt
+                }
+            });
+        } catch (error: unknown) {
+            return sendToolError(res, 400, getErrorMessage(error));
+        }
+    };
+}
+
+export function createToolApprovalHandler(
+    commandApprovalManager: CommandApprovalManager
+): express.RequestHandler {
+    return (req, res) => {
+        const challengeId = isRecord(req.body) && typeof req.body.challenge_id === 'string'
+            ? req.body.challenge_id.trim()
+            : '';
+        if (!challengeId) {
+            return sendToolError(res, 400, 'Invalid command approval request: challenge_id is required.');
+        }
+
+        const grant = commandApprovalManager.approveChallenge(challengeId);
+        if (!grant) {
+            return sendToolError(res, 410, 'Command approval challenge is invalid or expired.');
+        }
+
+        return res.json({
+            approval_token: grant.approvalToken,
+            expires_at: grant.expiresAt
+        });
+    };
+}
+
 function parseToolCallRequest(
     body: unknown,
     res: Response,
     options: ToolCallHandlerOptions
 ): ParsedToolCallRequest | null {
-    const payload = body as Partial<ToolExecutionPayload> | null;
+    const payload = body as (Partial<ToolExecutionPayload> & { approval_token?: unknown }) | null;
 
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         sendToolError(res, 400, 'Invalid tool call request: request body must be a JSON object.');
@@ -111,10 +170,9 @@ function parseToolCallRequest(
         return null;
     }
 
-    const requestId = typeof payload.request_id === 'string' && payload.request_id.trim()
-        ? payload.request_id.trim()
-        : undefined;
-    return { args: rawArgs, name, requestId };
+    const requestId = readOptionalString(payload.request_id);
+    const approvalToken = readOptionalString(payload.approval_token);
+    return { approvalToken, args: rawArgs, name, requestId };
 }
 
 async function executeLocalTool(
@@ -125,6 +183,12 @@ async function executeLocalTool(
     options: ToolCallHandlerOptions
 ) {
     try {
+        const context = options.createToolExecutionContext();
+        const authorized = await authorizeLocalTool(localTool, request, context, res, options);
+        if (!authorized) {
+            return;
+        }
+
         const argsPreview = JSON.stringify(request.args ?? {}).slice(0, 80);
         options.log(`   🚀 Executing local tool: ${request.name} ${argsPreview}`);
         options.trace?.({
@@ -134,7 +198,7 @@ async function executeLocalTool(
             status: 'started',
             details: createTraceArgumentDetails(request.args)
         });
-        const result = await localTool.execute(request.args, options.createToolExecutionContext());
+        const result = await localTool.execute(request.args, context);
         const toolDuration = Date.now() - toolStart;
         options.log(`   ✅ Finished local tool: ${request.name} (${toolDuration}ms)`);
         options.trace?.({
@@ -219,4 +283,56 @@ function createTraceArgumentDetails(args: Record<string, unknown>): Record<strin
         argumentKeys: Object.keys(args).sort(),
         arguments: evidenceArguments
     };
+}
+
+async function authorizeLocalTool(
+    localTool: LocalTool,
+    request: ParsedToolCallRequest,
+    context: ToolExecutionContext,
+    res: Response,
+    options: ToolCallHandlerOptions
+): Promise<boolean> {
+    if (!localTool.assessRisk) {
+        return true;
+    }
+
+    const preflight = await localTool.assessRisk(request.args, context);
+    if (preflight.assessment.level === 'blocked') {
+        sendToolError(res, 400, `Security Error: ${preflight.assessment.reasons.join(' ')}`);
+        return false;
+    }
+    if (preflight.assessment.level !== 'requires_confirmation') {
+        return true;
+    }
+
+    const approved = options.commandApprovalManager.consumeGrant(
+        request.approvalToken,
+        preflight.fingerprint
+    );
+    if (!approved) {
+        res.status(409).json({
+            isError: true,
+            commandRisk: preflight.assessment,
+            content: [{
+                type: 'text',
+                text: `Approval Required: ${preflight.assessment.reasons.join(' ')}`
+            }]
+        });
+        return false;
+    }
+
+    context.approvedCommandFingerprint = preflight.fingerprint;
+    return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readOptionalString(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+
+    return value.trim() || undefined;
 }

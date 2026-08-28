@@ -6,7 +6,7 @@ const workspaceFolder = requireEnvironmentPath('WEBCODE_EVAL_WORKSPACE');
 const vscodeExecutablePath = process.env.WEBCODE_EVAL_VSCODE_PATH?.trim();
 
 export default defineConfig({
-  files: 'out/extension-test/minimalE2E.test.js',
+  files: process.env.WEBCODE_EVAL_TEST_FILE?.trim() || 'out/extension-test/minimalE2E.test.js',
   version: process.env.VSCODE_TEST_VERSION?.trim() || '1.106.1',
   extensionDevelopmentPath,
   workspaceFolder,
@@ -20,6 +20,7 @@ export default defineConfig({
     WEBCODE_EVAL_BROWSER_PATH: process.env.WEBCODE_EVAL_BROWSER_PATH,
     WEBCODE_EVAL_RUN_DIR: process.env.WEBCODE_EVAL_RUN_DIR,
     WEBCODE_EVAL_SCENARIO_PATH: process.env.WEBCODE_EVAL_SCENARIO_PATH,
+    WEBCODE_EVAL_TEST_FILE: process.env.WEBCODE_EVAL_TEST_FILE,
     WEBCODE_EVAL_TRACE_PATH: process.env.WEBCODE_EVAL_TRACE_PATH,
   },
   ...(vscodeExecutablePath

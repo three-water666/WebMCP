@@ -1,13 +1,27 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-export interface ScenarioExpected {
+export interface MinimalToolLoopExpected {
+    workflow: 'minimal-tool-loop';
     readPath: string;
     readContains: string;
     writtenPath: string;
     writtenContent: string;
     toolCalls: string[];
 }
+
+export interface CommandRiskExpected {
+    workflow: 'command-risk-approval';
+    toolCalls: string[];
+    allowedCommand: string;
+    blockedCommand: string;
+    blockedReason: string;
+    confirmationCommand: string;
+    confirmationOutput: string;
+    terminalConfirmationCommand: string;
+}
+
+export type ScenarioExpected = MinimalToolLoopExpected | CommandRiskExpected;
 
 interface BaseEvalScenario {
     schemaVersion: 1;
@@ -200,12 +214,31 @@ function validateExpected(value: unknown, manifestPath: string): ScenarioExpecte
         throw new Error(`Scenario expected.toolCalls must be a non-empty string array: ${manifestPath}`);
     }
 
+    const workflow = requireString(value, 'workflow', manifestPath);
+    const toolCalls = value.toolCalls.map(String);
+    if (workflow === 'minimal-tool-loop') {
+        return {
+            workflow,
+            readPath: requireString(value, 'readPath', manifestPath),
+            readContains: requireString(value, 'readContains', manifestPath),
+            writtenPath: requireString(value, 'writtenPath', manifestPath),
+            writtenContent: requireString(value, 'writtenContent', manifestPath),
+            toolCalls,
+        };
+    }
+    if (workflow !== 'command-risk-approval') {
+        throw new Error(`Unsupported scenario expected.workflow in ${manifestPath}: ${workflow}`);
+    }
+
     return {
-        readPath: requireString(value, 'readPath', manifestPath),
-        readContains: requireString(value, 'readContains', manifestPath),
-        writtenPath: requireString(value, 'writtenPath', manifestPath),
-        writtenContent: requireString(value, 'writtenContent', manifestPath),
-        toolCalls: value.toolCalls.map(String),
+        workflow,
+        toolCalls,
+        allowedCommand: requireString(value, 'allowedCommand', manifestPath),
+        blockedCommand: requireString(value, 'blockedCommand', manifestPath),
+        blockedReason: requireString(value, 'blockedReason', manifestPath),
+        confirmationCommand: requireString(value, 'confirmationCommand', manifestPath),
+        confirmationOutput: requireString(value, 'confirmationOutput', manifestPath),
+        terminalConfirmationCommand: requireString(value, 'terminalConfirmationCommand', manifestPath),
     };
 }
 

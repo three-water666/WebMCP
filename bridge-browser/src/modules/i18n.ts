@@ -82,6 +82,7 @@ const I18N_MESSAGES: Record<string, { en: string; zh: string }> = {
   label_tool: { en: "Tool Name", zh: "工具名称" },
   label_purpose: { en: "Purpose", zh: "操作意图" },
   label_args: { en: "Arguments", zh: "调用参数" },
+  label_risk: { en: "Why confirmation is required", zh: "需要确认的风险" },
   label_rule_key: { en: "Rule Key", zh: "匹配规则" },
   placeholder_reason: { en: "Reason for rejection (Optional)...", zh: "拒绝理由 (可选)..." },
 
@@ -108,8 +109,8 @@ const I18N_MESSAGES: Record<string, { en: string; zh: string }> = {
   },
   cmd_scope_exact_title: { en: "Exact Command", zh: "精确命令" },
   cmd_scope_exact_desc: {
-    en: "Only this normalized command will be auto-approved.",
-    zh: "只有这条归一化后的命令会被自动放行。",
+    en: "Only this exact command, directory, and shell profile will be auto-approved.",
+    zh: "只有这条精确命令、执行目录和 Shell profile 会被自动放行。",
   },
   cmd_scope_executable_title: { en: "Executable", zh: "可执行文件" },
   cmd_scope_executable_desc: {

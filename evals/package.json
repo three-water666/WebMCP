@@ -9,6 +9,7 @@
     "scenarios": "pnpm run build && node scripts/agent-scenarios.mjs",
     "e2e:minimal:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",
     "e2e:minimal": "pnpm run e2e:minimal:prepare && node scripts/run-minimal-e2e.mjs",
+    "e2e:command-risk": "pnpm run e2e:minimal:prepare && node scripts/run-minimal-e2e.mjs command-risk-approval commandRiskE2E.test.js",
     "live:deepseek:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",
     "live:deepseek": "pnpm run live:deepseek:prepare && node scripts/run-deepseek-live.mjs",
     "qa:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",

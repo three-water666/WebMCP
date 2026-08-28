@@ -1,5 +1,8 @@
 export type CommandApprovalScope = false | "exact" | "executable" | "prefix";
 
+const EXPLICIT_DEFAULT_EXECUTE_COMMAND_PROFILE = "__webcode_vscode_default__";
+const UNSPECIFIED_EXECUTE_COMMAND_PROFILE = "__webcode_legacy_posix__";
+
 const BROAD_COMMAND_EXECUTABLES = new Set([
   "bash",
   "bun",
@@ -31,8 +34,31 @@ const BROAD_COMMAND_EXECUTABLES = new Set([
 
 export function normalizeCommandValue(command: unknown): string | null {
   if (typeof command !== "string") {return null;}
-  const normalized = command.trim().replace(/\s+/g, " ");
+  const normalized = command.trim();
   return normalized || null;
+}
+
+export function getCommandApprovalContext(
+  toolName: string,
+  args: Record<string, unknown> | undefined
+): string {
+  const path = typeof args?.path === "string" && args.path.trim() ? args.path.trim() : ".";
+  const requestedProfile = typeof args?.profile === "string" ? args.profile.trim() : "";
+  const profile = getCommandApprovalProfile(toolName, requestedProfile);
+  return `${encodeURIComponent(path)}:${encodeURIComponent(profile)}`;
+}
+
+function getCommandApprovalProfile(toolName: string, requestedProfile: string): string {
+  if (toolName !== "execute_command") {
+    return requestedProfile || "default";
+  }
+  if (!requestedProfile) {
+    return UNSPECIFIED_EXECUTE_COMMAND_PROFILE;
+  }
+
+  return requestedProfile === "default"
+    ? EXPLICIT_DEFAULT_EXECUTE_COMMAND_PROFILE
+    : requestedProfile;
 }
 
 export function getCommandExecutable(command: string): string | null {
@@ -41,6 +67,7 @@ export function getCommandExecutable(command: string): string | null {
 }
 
 export function getCommandPrefix(command: string): string | null {
+  if (hasCommandControlSyntax(command)) {return null;}
   const tokens = tokenizeCommandLine(command);
   if (tokens.length < 2) {return null;}
   return `${tokens[0]} ${tokens[1]}`;
@@ -55,11 +82,15 @@ export function isCommandApprovalScopeAllowed(
   scope: Exclude<CommandApprovalScope, false>
 ): boolean {
   if (scope !== "executable") {
-    return true;
+    return scope !== "prefix" || !hasCommandControlSyntax(command);
   }
 
   const executable = getCommandExecutable(command);
-  return Boolean(executable && !isBroadCommandExecutable(executable));
+  return Boolean(
+    executable
+    && !isBroadCommandExecutable(executable)
+    && !hasCommandControlSyntax(command)
+  );
 }
 
 export function tokenizeCommandLine(command: string): string[] {
@@ -117,4 +148,8 @@ export function tokenizeCommandLine(command: string): string[] {
 function normalizeExecutableName(executable: string): string {
   const baseName = executable.split(/[\\/]/).pop() ?? executable;
   return baseName.replace(/\.(exe|cmd|bat|ps1)$/i, "").toLowerCase();
+}
+
+function hasCommandControlSyntax(command: string): boolean {
+  return /\$\(|[`{}"';&|\r\n]/.test(command);
 }

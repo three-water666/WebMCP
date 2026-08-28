@@ -2,7 +2,7 @@ import { isMessageRequest, type MessageRequest, type SessionDisconnectReason } f
 import { playAttentionSound } from './attention_sound';
 import { handleHandshake } from './connection';
 import { getErrorMessage } from './errors';
-import { executeTool } from './gateway';
+import { approveTool, executeTool, preflightTool } from './gateway';
 import { showNotification, updateWindowAttention } from './notifications';
 import { getSessionPresetSettings, updateDefaultAutoApproveTools, type SessionPresetSettings } from './presets';
 import { checkGatewayHealth, expireGatewaySession, type GatewayHealthStatus } from './session_health';
@@ -54,6 +54,12 @@ function dispatchRuntimeMessage(
       return true;
     case "EXECUTE_TOOL":
       respondAsync(executeTool(request, currentTabId, sender.url), sendResponse);
+      return true;
+    case "PREFLIGHT_TOOL":
+      respondAsync(preflightTool(request, currentTabId, sender.url), sendResponse);
+      return true;
+    case "APPROVE_TOOL":
+      respondAsync(approveTool(request, currentTabId, sender.url), sendResponse);
       return true;
     case "SHOW_NOTIFICATION":
       respondAsync(showNotification(request, sender), sendResponse);
