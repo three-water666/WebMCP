@@ -7,7 +7,12 @@ export function resolveBrowserPath() {
   const candidates = configured ? [configured] : getBrowserCandidates();
   const resolved = candidates.find(candidate => candidate && existsSync(candidate));
   if (!resolved) {
-    throw new Error('No Edge, Chrome, or Chromium executable found. Set WEBCODE_EVAL_BROWSER_PATH.');
+    throw new Error([
+      configured
+        ? `The browser executable configured by WEBCODE_EVAL_BROWSER_PATH does not exist: ${configured}`
+        : 'No local Edge, Chrome, or Chromium executable was found in the default locations.',
+      'Set WEBCODE_EVAL_BROWSER_PATH to the full path of an installed browser executable and retry.',
+    ].join(' '));
   }
   return resolved;
 }
@@ -18,7 +23,17 @@ export function resolveVsCodePath() {
     return undefined;
   }
   const candidates = configured ? [configured] : getVsCodeCandidates();
-  return candidates.find(candidate => candidate && existsSync(candidate));
+  const resolved = candidates.find(candidate => candidate && existsSync(candidate));
+  if (!resolved) {
+    throw new Error([
+      configured
+        ? `The VS Code executable configured by WEBCODE_EVAL_VSCODE_PATH does not exist: ${configured}`
+        : 'No local VS Code executable was found in the default locations.',
+      'Set WEBCODE_EVAL_VSCODE_PATH to the full path of an installed VS Code executable and retry.',
+      'Set WEBCODE_EVAL_VSCODE_PATH=download only when downloading the fixed test runtime is intended.',
+    ].join(' '));
+  }
+  return resolved;
 }
 
 function getBrowserCandidates() {

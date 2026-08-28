@@ -206,9 +206,13 @@ warning，便于修改提示后对比复测。
 
 可选环境变量：
 
-- `WEBCODE_EVAL_BROWSER_PATH`：Edge、Chrome 或 Chromium 可执行文件路径。
-- `WEBCODE_EVAL_VSCODE_PATH`：VS Code 可执行文件路径；设为 `download` 时使用隔离的固定测试版本。
-- `VSCODE_TEST_VERSION`：没有指定本机 VS Code 时使用的测试版本，默认 `1.106.1`。
+- `WEBCODE_EVAL_BROWSER_PATH`：Edge、Chrome 或 Chromium 可执行文件的完整路径。
+- `WEBCODE_EVAL_VSCODE_PATH`：VS Code 可执行文件的完整路径；只有显式设为 `download` 时才会
+  下载并使用隔离的固定测试版本。
+- `VSCODE_TEST_VERSION`：显式选择 `download` 时使用的测试版本，默认 `1.106.1`。
+
+启动脚本会先检查常见的本机安装位置。找不到可执行文件时会报错，并提示设置对应的环境变量，
+不会静默下载 VS Code。非默认安装目录（例如 Windows 的其他盘符）应显式设置完整路径。
 
 运行产物保存在 `evals/runs/`，其中包含隔离工作区、`run.json` 和 `trace.jsonl`。该目录不会提交。
 
@@ -219,8 +223,11 @@ warning，便于修改提示后对比复测。
 不指定场景时仍使用最小 bridge fixture：
 
 ```bash
-pnpm qa:start chatgpt
+pnpm qa:start
 ```
+
+未指定站点时默认打开 DeepSeek。也可以把第一个参数设为其他内置站点 id，例如 `chatgpt`、
+`gemini`、`aistudio`、`glm`、`claude` 或 `qwen`。
 
 指定 agent-eval 场景时，VS Code 会打开隔离后的代码 workspace 和一个源码文件，并应用场景声明的
 MCP 配置。例如用 DeepSeek 执行固定的代码调用链分析题：

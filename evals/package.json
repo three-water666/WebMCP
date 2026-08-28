@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "pretest": "pnpm run build",
-    "test": "mocha --ui tdd \"out/unit-test/**/*.test.js\" && node scripts/self-test-agent-scenarios.mjs",
+    "test": "mocha --ui tdd \"out/unit-test/**/*.test.js\" && node --test scripts/runtime-paths.test.mjs scripts/qa-start-arguments.test.mjs && node scripts/self-test-agent-scenarios.mjs",
     "scenarios": "pnpm run build && node scripts/agent-scenarios.mjs",
     "e2e:minimal:prepare": "pnpm --filter @webcode/shared run build && pnpm --filter bridge-browser run build && pnpm --filter gateway-vscode run compile && pnpm run build",
     "e2e:minimal": "pnpm run e2e:minimal:prepare && node scripts/run-minimal-e2e.mjs",

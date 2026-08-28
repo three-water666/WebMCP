@@ -19,6 +19,7 @@ import {
 } from './qa-common.mjs';
 import { resolveBrowserPath, resolveVsCodePath } from './runtime-paths.mjs';
 import { findAgentScenario, prepareAgentScenario } from './agent-scenario-lib.mjs';
+import { DEFAULT_QA_SITE_ID, parseQaStartArguments } from './qa-start-arguments.mjs';
 
 const require = createRequire(import.meta.url);
 const { loadScenario } = require('../out/harness/scenario.js');
@@ -297,20 +298,11 @@ async function findDistinctPort(excluded) {
 
 function readArguments(args) {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log('Usage: pnpm qa:start [chatgpt|deepseek|site-id] [agent-scenario-id]');
+    console.log('Usage: pnpm qa:start [site-id] [agent-scenario-id]');
+    console.log(`Default site: ${DEFAULT_QA_SITE_ID}`);
     process.exit(0);
   }
-  const siteId = args[0]?.trim() || 'chatgpt';
-  const scenarioId = args[1]?.trim() || 'minimal-tool-loop';
-  for (const [label, value] of [['site', siteId], ['scenario', scenarioId]]) {
-    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(value)) {
-      throw new Error(`Invalid ${label} id: ${value}`);
-    }
-  }
-  if (args.length > 2) {
-    throw new Error('qa:start accepts at most a site id and an agent scenario id.');
-  }
-  return { siteId, scenarioId };
+  return parseQaStartArguments(args);
 }
 
 async function prepareScenario(scenarioId) {

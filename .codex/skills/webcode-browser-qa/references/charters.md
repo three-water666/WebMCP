@@ -25,7 +25,10 @@ Select the sections that match the change. Adapt exact actions to current site s
 
 - On a fresh conversation, type an ordinary first message and press Enter.
 - Confirm interception opens the initialization prompt instead of losing or duplicating the text.
-- Cancel once and verify the draft remains usable.
+- Click `Add`/`添加` or press Enter in the prompt. Confirm the initialization context is inserted
+  once, the original task remains present, and the message is not sent automatically.
+- Press Enter or click the site's send button again. Confirm exactly one user message is sent.
+- In a separate fresh conversation, cancel once and verify the draft remains usable.
 - Open the browser popup and invoke manual initialization.
 - Confirm the initialization context is inserted once and the original task can still be sent.
 - Reload and repeat the action that is expected to persist or reset.

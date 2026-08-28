@@ -3,6 +3,7 @@
 ## Lifecycle
 
 ```text
+pnpm qa:start
 pnpm qa:start chatgpt
 pnpm qa:start deepseek read-code-call-chain
 pnpm qa:status <run>
@@ -17,8 +18,19 @@ under `evals/scenarios`; without it, the minimal bridge fixture is used.
 VS Code user data and extensions are isolated inside the run. `qa:status` reports `degraded` if a
 host process or the authenticated control channel disappears while the manifest still says running.
 
-Use another built-in site id such as `deepseek` when that platform is under test. Login state is
-stored under the ignored `evals/live-profiles/<site-id>/` directory.
+Omitting the site id selects `deepseek`. The built-in site ids are `chatgpt`, `gemini`, `aistudio`,
+`deepseek`, `glm`, `claude`, and `qwen`. Honor a site named by the user. A custom site id can be used
+after its complete `webcodeGateway.aiSites` configuration is available in the isolated Extension
+Host; do not imply that an unconfigured site is supported.
+
+`qa:start` uses locally installed browser and VS Code executables from known default locations.
+If either executable is not found, locate it, set `WEBCODE_EVAL_BROWSER_PATH` or
+`WEBCODE_EVAL_VSCODE_PATH` to its full path, and retry. Do not set
+`WEBCODE_EVAL_VSCODE_PATH=download` unless the user explicitly wants the fixed test runtime to be
+downloaded; VS Code is never downloaded as an implicit fallback.
+
+Use another built-in site id when that platform is under test. Login state is stored under the
+ignored `evals/live-profiles/<site-id>/` directory.
 
 ## Playwright
 
