@@ -21,6 +21,7 @@ export interface NetworkCaptureRuntime {
   configure: (capture: SiteNetworkCaptureConfig | null) => void;
   flushReadyTurn: () => void;
   hasPendingTurns: () => boolean;
+  reset: () => void;
   shouldSuppressDomCapture: () => boolean;
 }
 
@@ -30,17 +31,22 @@ export function createNetworkCaptureRuntime(options: NetworkCaptureRuntimeOption
     onCompleted: (event) => options.isConnected() && toolCalls.ingest(event),
     onFallbackNeeded: () => options.scheduleMainLoop(1000),
   });
+  const resetToolCalls = () => {
+    toolCalls.reset();
+    options.toolActivityTracker.reset();
+  };
 
   return {
     configure: (capture) => {
+      resetToolCalls();
       bridge.configure(capture);
-      if (!capture?.enabled) {
-        toolCalls.reset();
-        options.toolActivityTracker.reset();
-      }
     },
     flushReadyTurn: () => toolCalls.flushReadyTurn(),
     hasPendingTurns: () => toolCalls.hasPendingTurns(),
+    reset: () => {
+      resetToolCalls();
+      bridge.configure(null);
+    },
     shouldSuppressDomCapture: () => bridge.shouldSuppressDomCapture() || toolCalls.hasPendingTurns(),
   };
 }

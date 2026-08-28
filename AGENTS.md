@@ -29,10 +29,12 @@ Avoid body entries like:
 
 ## Interactive QA Guidelines
 
-- Use the `webcode-browser-qa` skill after changes to browser capture, bridge behavior, popup or
-  initialization flows, approvals, result delivery, site selectors, browser launching, or VS Code
-  integration UI.
-- Treat `test:e2e:minimal` as a deterministic regression check, not a replacement for agent-led
-  inspection of the affected real UI flow.
-- Run interactive QA in the isolated workspace and profiles created by `qa:start`; do not point
-  browser-driven tool calls at the repository working tree.
+- After changes to browser capture, bridge behavior, popup or initialization flows, approvals,
+  result delivery, site selectors, browser launching, or VS Code integration UI, you may remind
+  the user that the `webcode-browser-qa` skill is available.
+- Do not invoke the interactive QA workflow or start a QA session unless the user explicitly asks
+  for it or agrees to the suggestion.
+- When the user authorizes interactive QA, treat `test:e2e:minimal` as a deterministic regression
+  check, not a replacement for agent-led inspection of the affected real UI flow.
+- Run authorized interactive QA in the isolated workspace and profiles created by `qa:start`; do
+  not point browser-driven tool calls at the repository working tree.

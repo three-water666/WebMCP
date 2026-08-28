@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "pnpm run build:main-world && tsc && vite build",
     "build:main-world": "vite build --config vite.main-world.config.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vite build --config vite.test.config.ts && node node_modules/.cache/runtime-tests/network_capture_runtime.test.js"
   },
   "dependencies": {
     "@webcode/shared": "workspace:*"

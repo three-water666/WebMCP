@@ -1,19 +1,33 @@
 ---
 name: webcode-browser-qa
-description: Lead interactive end-to-end QA for WebCode changes across real AI sites, the browser bridge and popup, Gateway, and VS Code. Use after changes to capture, initialization, approvals, result delivery, selectors, browser launch, extension UI, settings, commands, or editor navigation; do not use for ordinary unit-only changes.
+description: Suggest interactive end-to-end QA for relevant WebCode browser and VS Code changes, and lead it only after the user explicitly requests or approves the workflow. Do not start QA automatically after changes or use it for ordinary unit-only changes.
 ---
 
 # WebCode Browser QA
 
 Use this workflow to explore the affected product flow, adapt actions to observed state, collect
-evidence, and report bugs. Agent-eval scenarios may supply a fixed task, isolated code fixture,
-and optional deterministic checks, but the Codex operator owns the test actions and verdict.
+evidence, and report bugs after the user authorizes interactive QA. Agent-eval scenarios may
+supply a fixed task, isolated code fixture, and optional deterministic checks, but the Codex
+operator owns the test actions and verdict.
 
-Read [references/commands.md](references/commands.md) before starting a session. Read only the
-relevant section of [references/charters.md](references/charters.md) for the changed behavior.
-Also use the `playwright-cli` skill for all browser and VS Code Workbench operations.
+## Authorization
 
-## Workflow
+- After relevant changes to capture, initialization, approvals, result delivery, selectors,
+  browser launch, extension UI, settings, commands, or editor navigation, you may tell the user
+  this skill is available and briefly state what it would validate.
+- Do not run `qa:start`, open or drive a browser or VS Code session, or otherwise begin this
+  workflow unless the user explicitly requests it or agrees to the suggestion.
+- A request to implement, fix, review, or test the code does not by itself authorize interactive
+  QA. Ordinary unit, build, lint, and deterministic checks remain within the original task scope.
+- If the user does not authorize interactive QA, do not block completion; report that it was not
+  run when that context is useful.
+
+After authorization, read [references/commands.md](references/commands.md) before starting a
+session. Read only the relevant section of [references/charters.md](references/charters.md) for
+the changed behavior. Also use the `playwright-cli` skill for all browser and VS Code Workbench
+operations.
+
+## Authorized Workflow
 
 1. Start an isolated session with `pnpm qa:start <site-id> [scenario-id]` and retain the run id.
    Prefer an agent-eval scenario when the model should work on a fixed, verifiable coding task.
