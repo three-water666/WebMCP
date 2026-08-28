@@ -3,6 +3,7 @@ import type { SiteSelectors } from "../modules/config";
 import * as UI from "../modules/ui";
 import { i18n, t } from "../modules/i18n";
 import { Logger } from "../modules/logger";
+import { normalizeToolResultData, type ToolResultData } from "../modules/tool_result";
 import type { ToolExecutionPayload } from "../types";
 import { buildWebcodeInitPrompt } from "./init_context";
 import {
@@ -216,7 +217,7 @@ export class ToolExecutor {
       request.identity.requestId,
       message,
       true,
-      request.payload.name
+      { toolName: request.payload.name }
     );
     this.options.scheduleMainLoop(50);
   }
@@ -267,7 +268,7 @@ export class ToolExecutor {
                 request.identity.requestId,
                 errorMessage,
                 true,
-                request.payload.name
+                { toolName: request.payload.name }
               );
               this.options.scheduleMainLoop(50);
               resolve();
@@ -278,13 +279,16 @@ export class ToolExecutor {
             if (result.success) {
               this.options.onActivityStatusChange(request.identity, "succeeded");
               Logger.log(`${t("exec_success")}: ${request.payload.name}`, "success");
-              const outputContent = formatSuccessfulResult(request.payload.name, result.data);
+              const output = formatSuccessfulResult(request.payload.name, result.data);
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
                 request.identity.requestId,
-                outputContent,
+                output.text,
                 false,
-                request.payload.name
+                {
+                  attachments: output.attachments,
+                  toolName: request.payload.name,
+                }
               );
             } else {
               this.options.onActivityStatusChange(
@@ -298,7 +302,7 @@ export class ToolExecutor {
                 request.identity.requestId,
                 result.error ?? "Tool execution failed.",
                 true,
-                request.payload.name
+                { toolName: request.payload.name }
               );
             }
 
@@ -332,7 +336,7 @@ export class ToolExecutor {
       request.identity.requestId,
       message,
       true,
-      request.payload.name
+      { toolName: request.payload.name }
     );
     this.options.scheduleMainLoop(50);
   }
@@ -371,7 +375,7 @@ export class ToolExecutor {
             request.identity.requestId,
             `User rejected execution. Reason: ${reason || "No reason provided."}`,
             true,
-            request.payload.name
+            { toolName: request.payload.name }
           );
           this.options.scheduleMainLoop(50);
           resolve(false);
@@ -389,12 +393,8 @@ export class ToolExecutor {
   }
 }
 
-function formatSuccessfulResult(toolName: string, data: unknown): string {
-  return formatToolOutput(data, getToolResultFallback(toolName));
-}
-
-function formatToolOutput(data: unknown, fallback: string): string {
-  return stringifyToolData(data, fallback);
+function formatSuccessfulResult(toolName: string, data: unknown): ToolResultData {
+  return normalizeToolResultData(data, getToolResultFallback(toolName));
 }
 
 function getToolResultFallback(_toolName: string): string {
@@ -414,17 +414,6 @@ function normalizeToolResponse(response: unknown): ToolExecutionResponse {
     error: typeof response.error === "string" ? response.error : undefined,
     data: response.data,
   };
-}
-
-function stringifyToolData(data: unknown, fallback: string): string {
-  if (typeof data === "string") {return data;}
-  if (data == null) {return fallback;}
-  const json = JSON.stringify(data, null, 2);
-  if (typeof json === "string") {return json;}
-  if (typeof data === "number" || typeof data === "boolean" || typeof data === "bigint") {
-    return String(data);
-  }
-  return fallback;
 }
 
 function getErrorMessage(error: unknown): string {

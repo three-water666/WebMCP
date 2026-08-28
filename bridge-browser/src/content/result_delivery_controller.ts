@@ -27,7 +27,7 @@ export class ResultDeliveryController {
     this.isDeliveryRunning = true;
     this.options.toolActivityTracker.updateDelivery(resultBatch.ids, "delivering");
     let batchFinalized = false;
-    void UI.deliverResult(resultBatch.output, selectors)
+    void UI.deliverResult(resultBatch, selectors)
       .then((delivery) => {
         batchFinalized = true;
         this.options.requestRegistry.markFlushed(resultBatch.ids);

@@ -9,7 +9,7 @@
     "build": "pnpm run build:main-world && tsc && vite build",
     "build:main-world": "vite build --config vite.main-world.config.ts",
     "preview": "vite preview",
-    "test": "vite build --config vite.test.config.ts && node node_modules/.cache/runtime-tests/approval_policy.test.js && node node_modules/.cache/runtime-tests/dom_tool_activity.test.js && node node_modules/.cache/runtime-tests/network_capture_runtime.test.js"
+    "test": "vite build --config vite.test.config.ts && node node_modules/.cache/runtime-tests/approval_policy.test.js && node node_modules/.cache/runtime-tests/dom_tool_activity.test.js && node node_modules/.cache/runtime-tests/network_capture_runtime.test.js && node node_modules/.cache/runtime-tests/result_delivery.test.js && node node_modules/.cache/runtime-tests/tool_result.test.js"
   },
   "dependencies": {
     "@webcode/shared": "workspace:*"

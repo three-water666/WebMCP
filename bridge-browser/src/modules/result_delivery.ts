@@ -5,9 +5,22 @@ import { Logger } from "./logger";
 import { delay } from "./dom_helpers";
 import { getInputAreaBySelector, getInputAreaElement } from "./page_selectors";
 import { showUserAttentionNotification } from "./user_attention";
+import {
+  buildAttachmentFailureReason,
+  createTextAttachmentFile,
+  isPasteEventAcknowledged,
+  prepareAttachmentGroups,
+  toAttachmentFailure,
+} from "./attachment_delivery";
+import {
+  applyAttachmentDeliveryFailures,
+  type ToolResultAttachmentFailure,
+  type ToolResultAttachmentGroup,
+  type ToolResultDeliveryBatch,
+} from "./tool_result";
 
 export interface DeliverResultStatus {
-  /** Historical flag: true means the oversized-result paste event was dispatched. */
+  /** Historical flag: true means at least one file paste event was dispatched. */
   uploaded: boolean;
   delivered: boolean;
   attemptedWrite: boolean;
@@ -19,7 +32,15 @@ interface InputWriteResult {
   attemptedWrite: boolean;
 }
 
+export interface AttachmentPasteDispatchResult {
+  acknowledged: boolean;
+  dispatched: boolean;
+  reason?: string;
+}
+
 const INPUT_WRITE_VERIFY_DELAYS_MS = [120, 250, 500];
+const TOOL_ATTACHMENT_SETTLE_MS = 2000;
+const LEGACY_ATTACHMENT_SETTLE_MS = 800;
 
 // === 回填输入框 ===
 /**
@@ -81,16 +102,28 @@ function setInputBoxText(text: string, inputEl: HTMLElement | HTMLInputElement |
 
 /**
  * 将工具执行的结果分发交付给聊天页面输入框
- * @param text 要发送的内容
+ * @param resultBatch 要发送的分组工具结果及其附件
  * @param domSelectors 网页对应选择器配置对象 (从 settings/init 下发)
  * @returns 包含交付状态的 Promise 对象，表示是否派发附件 paste、是否确认写入输入框、以及尝试过哪些动作
  * @description
  * - 这是一个关键的分发函数，它会自动判断内容是否超过了内联文本的最大限制(`maxInlineChars`)。
  * - 如果超过了限制且平台支持作为附件上传，它将尝试调用对应的上传函数 (`paste` 模式)。
  * - 如果附件模式上传成功，它会将内容提取到文本文件里，并在输入框中写下简短的提示语引导 AI 读取附件。
- * - 如果附件上传失败，或者内容未超长，它将安全地回退，把全部结果拼接到输入框里。
+ * - 工具附件粘贴后会固定等待两秒，再交给已有的自动发送重试机制。
+ * - 如果超长文本附件上传失败，它会安全地回退，把全部结果拼接到输入框里。
  */
-export async function deliverResult(text: string, domSelectors: SiteSelectors): Promise<DeliverResultStatus> {
+export async function deliverResult(
+  resultBatch: ToolResultDeliveryBatch,
+  domSelectors: SiteSelectors
+): Promise<DeliverResultStatus> {
+  if (resultBatch.attachmentGroups.length > 0) {
+    return deliverResultWithAttachments(resultBatch, domSelectors);
+  }
+
+  return deliverTextResult(resultBatch.output, domSelectors);
+}
+
+async function deliverTextResult(text: string, domSelectors: SiteSelectors): Promise<DeliverResultStatus> {
   const maxInlineChars = typeof domSelectors.maxInlineChars === "number"
     ? domSelectors.maxInlineChars
     : 0;
@@ -127,6 +160,96 @@ export async function deliverResult(text: string, domSelectors: SiteSelectors): 
   }
 
   return toDeliveryStatus(true, writeResult, true);
+}
+
+async function deliverResultWithAttachments(
+  resultBatch: ToolResultDeliveryBatch,
+  domSelectors: SiteSelectors
+): Promise<DeliverResultStatus> {
+  const prepared = prepareAttachmentGroups(resultBatch.attachmentGroups);
+  const failures: ToolResultAttachmentFailure[] = prepared.failures;
+  const preparedGroups = prepared.preparedGroups;
+  failures.forEach((failure) => Logger.log(failure.reason, "error"));
+
+  const preparedOutputText = applyAttachmentDeliveryFailures(resultBatch.outputParts, failures)
+    .join("\n\n");
+  const shouldAttachText = shouldAttachResultText(preparedOutputText, domSelectors);
+  const files = preparedGroups.flatMap((prepared) => prepared.files);
+  if (shouldAttachText) {
+    files.push(createTextAttachmentFile(preparedOutputText, BRANDING.resultFilePrefix));
+  }
+
+  const pasteResult = await dispatchToolAttachments(files, domSelectors);
+  appendPasteFailures(preparedGroups, pasteResult, failures);
+  if (pasteResult.acknowledged) {
+    Logger.log(`Attachment paste acknowledged (${files.length} file(s))`, "success");
+  }
+
+  if (failures.length > 0) {
+    notifyAttachmentDeliveryFailure(failures[0]?.reason);
+  }
+
+  const outputText = applyAttachmentDeliveryFailures(resultBatch.outputParts, failures).join("\n\n");
+  const inlineText = getAttachmentInlineText(outputText, shouldAttachText, pasteResult.acknowledged);
+  const writeResult = await writeToInputBoxWithVerification(inlineText, domSelectors.inputArea);
+  if (!writeResult.delivered) {
+    notifyResultDeliveryFailure(true);
+  }
+
+  return toDeliveryStatus(pasteResult.dispatched, writeResult, true);
+}
+
+function shouldAttachResultText(text: string, domSelectors: SiteSelectors): boolean {
+  const maxInlineChars = domSelectors.maxInlineChars ?? 0;
+  if (!maxInlineChars) {return false;}
+  const inputEl = getInputAreaElement(domSelectors);
+  const finalInlineText = inputEl ? buildFinalInputText(inputEl, text) : text;
+  return finalInlineText.length > maxInlineChars;
+}
+
+async function dispatchToolAttachments(
+  files: readonly File[],
+  domSelectors: SiteSelectors
+): Promise<AttachmentPasteDispatchResult> {
+  if (files.length === 0) {
+    return {
+      acknowledged: false,
+      dispatched: false,
+      reason: "No attachment file was available for browser delivery.",
+    };
+  }
+  const pasteResult = pasteFilesAsAttachments(files, domSelectors);
+  if (pasteResult.dispatched) {
+    await delay(TOOL_ATTACHMENT_SETTLE_MS);
+  }
+  return pasteResult;
+}
+
+function appendPasteFailures(
+  preparedGroups: readonly { group: ToolResultAttachmentGroup }[],
+  pasteResult: AttachmentPasteDispatchResult,
+  failures: ToolResultAttachmentFailure[]
+): void {
+  if (pasteResult.acknowledged) {return;}
+  const detail = pasteResult.dispatched
+    ? "the target page did not acknowledge the simulated paste event. " +
+      "The site may not support file uploads, paste uploads, or this file format."
+    : pasteResult.reason ?? "the simulated paste event could not be dispatched.";
+  preparedGroups.forEach(({ group }) => {
+    const reason = buildAttachmentFailureReason(group, detail);
+    failures.push(toAttachmentFailure(group, reason));
+    Logger.log(reason, "error");
+  });
+}
+
+function getAttachmentInlineText(
+  outputText: string,
+  shouldAttachText: boolean,
+  attachmentAcknowledged: boolean
+): string {
+  if (!shouldAttachText || !attachmentAcknowledged) {return outputText;}
+  return i18n.resources.oversize ??
+    "The result exceeds the character limit. It has been attached as a text file. Please read the attached file for the full details.";
 }
 
 async function writeToInputBoxWithVerification(text: string, inputSelector: string): Promise<InputWriteResult> {
@@ -190,8 +313,15 @@ function notifyResultDeliveryFailure(attemptedUpload: boolean): void {
   void showUserAttentionNotification({
     title: "Result Delivery Failed",
     message: attemptedUpload
-      ? "Could not verify the oversized result prompt. Check the input box and attachment manually."
+      ? "Could not verify the file attachment. Check the input box and attachment manually."
       : "Could not write result to input box. Check the page manually.",
+  });
+}
+
+function notifyAttachmentDeliveryFailure(reason: string | undefined): void {
+  void showUserAttentionNotification({
+    title: "Attachment Delivery Failed",
+    message: reason ?? "The target page did not accept the file attachment.",
   });
 }
 
@@ -290,14 +420,38 @@ export async function pasteTextAsAttachment(
   domSelectors: SiteSelectors,
   filenamePrefix: string = BRANDING.resultFilePrefix
 ): Promise<boolean> {
+  const pasteResult = pasteFilesAsAttachments([
+    createTextAttachmentFile(text, filenamePrefix),
+  ], domSelectors);
+  if (!pasteResult.dispatched) {return false;}
+
+  await delay(LEGACY_ATTACHMENT_SETTLE_MS);
+  return true;
+}
+
+export function pasteFilesAsAttachments(
+  files: readonly File[],
+  domSelectors: SiteSelectors
+): AttachmentPasteDispatchResult {
   const inputEl = getInputAreaElement(domSelectors);
-  if (!inputEl) {return false;}
+  if (!inputEl) {
+    return {
+      acknowledged: false,
+      dispatched: false,
+      reason: "The target page input area was not found.",
+    };
+  }
+  if (files.length === 0) {
+    return {
+      acknowledged: false,
+      dispatched: false,
+      reason: "No files were available for the simulated paste.",
+    };
+  }
 
   try {
-    const filename = `${filenamePrefix}-${Date.now()}.txt`;
-    const file = new File([text], filename, { type: "text/plain" });
     const clipboardData = new DataTransfer();
-    clipboardData.items.add(file);
+    files.forEach((file) => clipboardData.items.add(file));
 
     inputEl.focus();
     const pasteEvent = new ClipboardEvent("paste", {
@@ -305,14 +459,20 @@ export async function pasteTextAsAttachment(
       cancelable: true,
       clipboardData,
     });
-    inputEl.dispatchEvent(pasteEvent);
+    const notCanceled = inputEl.dispatchEvent(pasteEvent);
+    return {
+      acknowledged: isPasteEventAcknowledged(notCanceled, pasteEvent.defaultPrevented),
+      dispatched: true,
+    };
   } catch (error) {
-    Logger.log(`Attachment paste dispatch failed: ${getErrorMessage(error)}`, "warn");
-    return false;
+    const reason = `The simulated paste event failed: ${getErrorMessage(error)}.`;
+    Logger.log(`Attachment paste dispatch failed: ${reason}`, "warn");
+    return {
+      acknowledged: false,
+      dispatched: false,
+      reason,
+    };
   }
-
-  await delay(800);
-  return true;
 }
 
 function getErrorMessage(error: unknown): string {

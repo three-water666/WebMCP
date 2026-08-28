@@ -1,4 +1,5 @@
 import type { LocalTool } from './types';
+import { attachFileTool } from './attachFileTool';
 import { editFileTool } from './editFileTool';
 import { executeCommandTool } from './executeCommandTool';
 import { getProjectContextTool } from './getProjectContextTool';
@@ -16,6 +17,7 @@ const LOCAL_TOOLS: LocalTool[] = [
     listToolsTool,
     getProjectRulesTool,
     getProjectContextTool,
+    attachFileTool,
     readFileTool,
     writeFileTool,
     editFileTool,

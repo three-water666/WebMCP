@@ -76,7 +76,7 @@
 
 ## 内置工具
 
-webcode 内置 `read_file`、`write_file`、`edit_file`、`search_files`、`search_code`、`execute_command`、`run_in_terminal`、`terminal_session` 等本地工具，用于文件读写、代码搜索、命令执行和终端会话管理。
+webcode 内置 `read_file`、`attach_file`、`write_file`、`edit_file`、`search_files`、`search_code`、`execute_command`、`run_in_terminal`、`terminal_session` 等本地工具，用于文本读取、图片/PDF 附件投递、文件写入、代码搜索、命令执行和终端会话管理。
 
 具体工具清单见 [内置工具说明](doc/BUILTIN_TOOLS.md)。
 

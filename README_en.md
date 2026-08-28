@@ -76,7 +76,7 @@ For example:
 
 ## Built-in Tools
 
-webcode includes built-in local tools such as `read_file`, `write_file`, `edit_file`, `search_files`, `search_code`, `execute_command`, `run_in_terminal`, and `terminal_session` for file reads and writes, code search, command execution, and terminal session management.
+webcode includes built-in local tools such as `read_file`, `attach_file`, `write_file`, `edit_file`, `search_files`, `search_code`, `execute_command`, `run_in_terminal`, and `terminal_session` for text reads, image/PDF attachment delivery, file writes, code search, command execution, and terminal session management.
 
 See the [built-in tools reference](doc/BUILTIN_TOOLS_en.md).
 

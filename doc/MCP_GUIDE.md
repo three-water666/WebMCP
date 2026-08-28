@@ -189,6 +189,7 @@ SSE 示例：
 以下能力由 webcode 内置提供，不需要配置第三方 MCP server：
 
 - `read_file`
+- `attach_file`
 - `write_file`
 - `edit_file`
 - `search_files`
