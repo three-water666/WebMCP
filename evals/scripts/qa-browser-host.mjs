@@ -27,8 +27,11 @@ try {
     viewport: { width: 1280, height: 900 },
   });
 
-  const extensionWorker = await resolveExtensionWorker(browserContext);
-  const page = browserContext.pages()[0] ?? await browserContext.newPage();
+  const { build: extensionBuild, worker: extensionWorker } = await resolveExtensionWorker(
+    browserContext,
+    options.buildId
+  );
+  const page = await createCleanTargetPage(browserContext);
   await page.goto(options.bridgeUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await page.waitForURL(url => url.origin === new URL(options.targetUrl).origin, {
     timeout: 45_000,
@@ -45,6 +48,7 @@ try {
     pid: process.pid,
     cdpEndpoint: `http://127.0.0.1:${options.cdpPort}`,
     currentUrl: page.url(),
+    extensionBuild,
     extensionId,
     bridgeSession,
     popupUrl: extensionId ? `chrome-extension://${extensionId}/index.html` : undefined,
@@ -66,16 +70,41 @@ try {
   process.exitCode = 1;
 }
 
-async function resolveExtensionWorker(context) {
-  const worker = context.serviceWorkers().find(candidate => candidate.url().startsWith('chrome-extension://'))
-    ?? await context.waitForEvent('serviceworker', {
-      predicate: candidate => candidate.url().startsWith('chrome-extension://'),
-      timeout: 15_000,
-    }).catch(() => undefined);
-  if (!worker) {
-    throw new Error('The browser bridge service worker did not start.');
+async function resolveExtensionWorker(context, expectedBuildId) {
+  const deadline = Date.now() + 15_000;
+  const observedBuilds = new Map();
+  while (Date.now() < deadline) {
+    for (const worker of context.serviceWorkers()) {
+      if (!worker.url().startsWith('chrome-extension://')) {
+        continue;
+      }
+      const build = await readExtensionBuild(worker).catch(() => null);
+      if (build?.buildId === expectedBuildId) {
+        return { build, worker };
+      }
+      observedBuilds.set(worker.url(), build);
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
   }
-  return worker;
+  throw new Error(
+    `The expected browser bridge build did not start: ${JSON.stringify([...observedBuilds.values()])}`
+  );
+}
+
+async function readExtensionBuild(worker) {
+  return worker.evaluate(async () => {
+    const response = await fetch(globalThis.chrome.runtime.getURL('qa-build.json'), {
+      cache: 'no-store',
+    });
+    return response.ok ? response.json() : null;
+  });
+}
+
+async function createCleanTargetPage(context) {
+  const restoredPages = context.pages();
+  const page = await context.newPage();
+  await Promise.all(restoredPages.map(candidate => candidate.close().catch(() => undefined)));
+  return page;
 }
 
 async function waitForBridgeSession(worker, expected) {
@@ -151,6 +180,7 @@ function parseOptions(args) {
   }));
   const required = [
     'bridgeUrl',
+    'buildId',
     'browserPath',
     'cdpPort',
     'extensionPath',

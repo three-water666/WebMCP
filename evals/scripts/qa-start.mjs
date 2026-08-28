@@ -42,6 +42,7 @@ const browserStopPath = path.join(run.runDirectory, 'browser-host.stop');
 const controlPath = path.join(run.runDirectory, 'control.json');
 const logsDirectory = path.join(run.runDirectory, 'logs');
 const artifactsDirectory = path.join(run.runDirectory, 'artifacts');
+const browserExtensionPath = path.join(run.runDirectory, 'browser-extension');
 const sessions = {
   browser: `${run.runId}-browser`,
   vscode: `${run.runId}-vscode`,
@@ -49,6 +50,7 @@ const sessions = {
 
 await fs.mkdir(logsDirectory, { recursive: true });
 await fs.mkdir(artifactsDirectory, { recursive: true });
+const browserExtensionBuild = await prepareBrowserExtension();
 await prepareVsCodeUserData();
 const preparedManifest = await readJson(run.runManifestPath).catch(() => ({}));
 await writeJson(run.runManifestPath, {
@@ -74,6 +76,8 @@ await writeJson(run.runManifestPath, {
   gatewayPort,
   sessions,
   artifactsDirectory,
+  browserExtensionBuild,
+  browserExtensionPath,
   logsDirectory,
 });
 
@@ -183,12 +187,12 @@ async function prepareVsCodeUserData() {
 }
 
 function startBrowserHost(bridgeUrl, targetUrl) {
-  const extensionPath = path.join(repoRoot, 'bridge-browser', 'dist');
   return spawnDetachedNode(path.join(evalsRoot, 'scripts', 'qa-browser-host.mjs'), [
     `--bridgeUrl=${bridgeUrl}`,
+    `--buildId=${browserExtensionBuild.buildId}`,
     `--browserPath=${browserPath}`,
     `--cdpPort=${browserCdpPort}`,
-    `--extensionPath=${extensionPath}`,
+    `--extensionPath=${browserExtensionPath}`,
     `--gatewayPort=${gatewayPort}`,
     `--profilePath=${profilePath}`,
     `--readyPath=${browserReadyPath}`,
@@ -200,6 +204,31 @@ function startBrowserHost(bridgeUrl, targetUrl) {
     stdoutPath: path.join(logsDirectory, 'browser.stdout.log'),
     stderrPath: path.join(logsDirectory, 'browser.stderr.log'),
   });
+}
+
+async function prepareBrowserExtension() {
+  const sourcePath = path.join(repoRoot, 'bridge-browser', 'dist');
+  await fs.cp(sourcePath, browserExtensionPath, {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+  });
+
+  const manifestPath = path.join(browserExtensionPath, 'manifest.json');
+  const manifest = await readJson(manifestPath);
+  const version = typeof manifest.version === 'string' ? manifest.version : '0.0.0';
+  const versionName = `${version}-qa-${run.runId}`.slice(0, 128);
+  await writeJson(manifestPath, { ...manifest, version_name: versionName });
+
+  const build = {
+    schemaVersion: 1,
+    buildId: run.runId,
+    createdAt: new Date().toISOString(),
+    version,
+    versionName,
+  };
+  await writeJson(path.join(browserExtensionPath, 'qa-build.json'), build);
+  return build;
 }
 
 async function writePlaywrightConfig(target, cdpPort) {
