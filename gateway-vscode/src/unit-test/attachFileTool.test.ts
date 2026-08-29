@@ -6,6 +6,24 @@ import { ATTACH_FILE_MAX_BYTES, attachFileTool } from '../tools/attachFileTool';
 import type { ToolExecutionContext, ToolResult } from '../tools';
 
 suite('Attach File Tool', () => {
+    test('returns a UTF-8 TXT file as an embedded workspace resource', async () => {
+        await withTempWorkspace(async workspaceRoot => {
+            const relativePath = 'notes/example.txt';
+            const content = Buffer.from('WebCode TXT attachment\n中文内容', 'utf8');
+            await writeWorkspaceFile(workspaceRoot, relativePath, content);
+
+            const result = await attachFileTool.execute({ path: relativePath }, createToolContext(workspaceRoot));
+            const resource = requireBlobResource(result);
+
+            assert.strictEqual(resource.mimeType, 'text/plain');
+            assert.strictEqual(resource.blob, content.toString('base64'));
+            assert.deepStrictEqual(resource._meta, {
+                fileName: 'example.txt',
+                bytes: content.byteLength
+            });
+        });
+    });
+
     test('returns a PNG as an embedded workspace resource', async () => {
         await withTempWorkspace(async workspaceRoot => {
             const relativePath = 'assets/sample image.png';
@@ -38,11 +56,22 @@ suite('Attach File Tool', () => {
 
     test('rejects unsupported file extensions', async () => {
         await withTempWorkspace(async workspaceRoot => {
-            await writeWorkspaceFile(workspaceRoot, 'notes.txt', Buffer.from('hello', 'utf8'));
+            await writeWorkspaceFile(workspaceRoot, 'archive.zip', Buffer.from('hello', 'utf8'));
 
             await assert.rejects(
-                attachFileTool.execute({ path: 'notes.txt' }, createToolContext(workspaceRoot)),
-                /supports only PNG, JPEG, WebP, GIF, and PDF/
+                attachFileTool.execute({ path: 'archive.zip' }, createToolContext(workspaceRoot)),
+                /supports only TXT, PNG, JPEG, WebP, GIF, and PDF/
+            );
+        });
+    });
+
+    test('rejects invalid UTF-8 TXT content', async () => {
+        await withTempWorkspace(async workspaceRoot => {
+            await writeWorkspaceFile(workspaceRoot, 'invalid.txt', Buffer.from([0xC3, 0x28]));
+
+            await assert.rejects(
+                attachFileTool.execute({ path: 'invalid.txt' }, createToolContext(workspaceRoot)),
+                /does not match the \.txt attachment type/
             );
         });
     });

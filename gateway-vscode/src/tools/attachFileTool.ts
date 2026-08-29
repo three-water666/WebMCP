@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { isUtf8 } from 'buffer';
 import type { LocalTool, ToolResult } from './types';
 import { WORKSPACE_FILE_PATH_DESCRIPTION, resolveWorkspaceRelativePath } from './workspacePath';
 
@@ -12,6 +13,11 @@ type SupportedAttachment = {
 };
 
 const SUPPORTED_ATTACHMENTS: readonly SupportedAttachment[] = [
+    {
+        extensions: ['.txt'],
+        mimeType: 'text/plain',
+        matches: content => isUtf8(content)
+    },
     {
         extensions: ['.png'],
         mimeType: 'image/png',
@@ -48,8 +54,9 @@ export const attachFileTool: LocalTool = {
     serverId: 'internal',
     definition: {
         name: 'attach_file',
-        description: 'Attach an image or PDF from the current VS Code workspace to the AI conversation for visual or document inspection. ' +
-            'Supports PNG, JPEG, WebP, GIF, and PDF files up to 20 MB. Use read_file for UTF-8 text files.',
+        description: 'Attach a UTF-8 TXT, image, or PDF file from the current VS Code workspace to the AI conversation. ' +
+            'Supports TXT, PNG, JPEG, WebP, GIF, and PDF files up to 20 MB. ' +
+            'Use read_file instead when only the text contents need inspection.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -93,7 +100,7 @@ function resolveSupportedAttachment(relativePath: string, content: Buffer): Supp
     const extension = path.posix.extname(relativePath).toLowerCase();
     const attachment = SUPPORTED_ATTACHMENTS.find(candidate => candidate.extensions.includes(extension));
     if (!attachment) {
-        throw new Error('attach_file supports only PNG, JPEG, WebP, GIF, and PDF files.');
+        throw new Error('attach_file supports only TXT, PNG, JPEG, WebP, GIF, and PDF files.');
     }
     if (!attachment.matches(content)) {
         throw new Error(`File content does not match the ${extension || 'requested'} attachment type.`);

@@ -37,6 +37,7 @@ const SUPPORTED_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
   "image/webp": ".webp",
+  "text/plain": ".txt",
 };
 
 export function parseGatewayToolResult(result: unknown): ToolResultData {

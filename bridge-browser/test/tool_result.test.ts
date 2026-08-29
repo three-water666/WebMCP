@@ -11,11 +11,32 @@ const PNG_BASE64 = "iVBORw0KGgo=";
 
 async function main(): Promise<void> {
   await runTest("extracts embedded resource attachments", testEmbeddedResource);
+  await runTest("extracts UTF-8 TXT resource attachments", testTextResourceAttachment);
   await runTest("keeps text-only gateway results backward compatible", testTextOnlyResult);
   await runTest("rejects unsupported attachment MIME types", testUnsupportedMimeType);
   await runTest("preserves attachments in buffered result batches", testBufferedAttachments);
   await runTest("rewrites only the failed attachment result", testAttachmentFailureResult);
   await runTest("distinguishes acknowledged paste events", testPasteAcknowledgement);
+}
+
+function testTextResourceAttachment(): void {
+  const content = "WebCode TXT attachment";
+  const result = parseGatewayToolResult({
+    content: [{
+      type: "resource",
+      resource: {
+        uri: "workspace:///notes/example.txt",
+        mimeType: "text/plain",
+        blob: Buffer.from(content, "utf8").toString("base64"),
+        _meta: { fileName: "example.txt" },
+      },
+    }],
+  });
+
+  assertEqual(result.attachments.length, 1, "TXT resource was not extracted");
+  assertEqual(result.attachments[0]?.name, "example.txt", "TXT attachment filename changed");
+  assertEqual(result.attachments[0]?.mimeType, "text/plain", "TXT attachment MIME type changed");
+  assertEqual(result.attachments[0]?.size, Buffer.byteLength(content), "TXT attachment size is incorrect");
 }
 
 function testEmbeddedResource(): void {
