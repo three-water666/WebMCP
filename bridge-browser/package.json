@@ -1,7 +1,7 @@
 {
   "name": "bridge-browser",
   "displayName": "webcode bridge",
-  "version": "0.11.2",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "predev": "pnpm run build:main-world",
