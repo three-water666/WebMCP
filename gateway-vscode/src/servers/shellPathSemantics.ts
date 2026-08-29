@@ -11,14 +11,19 @@ export function isInsideDirectory(
     directory: string,
     pathModule: path.PlatformPath
 ): boolean {
-    const normalizedPath = pathModule.resolve(pathModule.normalize(filePath));
-    const normalizedDirectory = pathModule.resolve(pathModule.normalize(directory));
+    const normalizedPath = normalizeForComparison(filePath, pathModule);
+    const normalizedDirectory = normalizeForComparison(directory, pathModule);
     return normalizedPath === normalizedDirectory
         || normalizedPath.startsWith(
             normalizedDirectory.endsWith(pathModule.sep)
                 ? normalizedDirectory
                 : `${normalizedDirectory}${pathModule.sep}`
         );
+}
+
+function normalizeForComparison(value: string, pathModule: path.PlatformPath): string {
+    const normalized = pathModule.resolve(pathModule.normalize(value));
+    return pathModule === path.win32 ? normalized.toLowerCase() : normalized;
 }
 
 export function isUnverifiableMsysAbsolutePath(

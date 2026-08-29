@@ -160,6 +160,19 @@ suite('Command Risk', () => {
     );
   });
 
+  test('allows workspace-relative move paths when Windows path casing differs', () => {
+    const assessment = assessShellCommandRisk(
+      'mv changelogs/en/v0.11.3.md changelogs/en/v1.0.0.md',
+      {
+        workspaceRoot: 'c:\\Users\\me\\project',
+        cwd: 'C:\\Users\\me\\project',
+        platform: 'win32'
+      }
+    );
+
+    assert.strictEqual(assessment.level, 'allowed');
+  });
+
   test('requires confirmation for dynamic POSIX syntax', () => {
     assert.strictEqual(
       assessShellCommandRisk('echo "$(node script.js)"', riskContext).level,
