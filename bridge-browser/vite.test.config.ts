@@ -12,6 +12,8 @@ export default defineConfig({
         "approval_policy.test": resolve(__dirname, "test/approval_policy.test.ts"),
         "dom_tool_activity.test": resolve(__dirname, "test/dom_tool_activity.test.ts"),
         "network_capture_runtime.test": resolve(__dirname, "test/network_capture_runtime.test.ts"),
+        "result_delivery.test": resolve(__dirname, "test/result_delivery.test.ts"),
+        "tool_result.test": resolve(__dirname, "test/tool_result.test.ts"),
       },
       output: {
         chunkFileNames: "chunks/[name]-[hash].js",

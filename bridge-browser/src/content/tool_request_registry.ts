@@ -1,5 +1,10 @@
 import { type McpResponse } from "@webcode/shared";
 import { i18n } from "../modules/i18n";
+import type {
+  ToolResultAttachment,
+  ToolResultAttachmentGroup,
+  ToolResultDeliveryBatch,
+} from "../modules/tool_result";
 
 /**
  * 当前页面扫描轮次中，仍需要等待或回填的一组 requestKey。
@@ -21,9 +26,8 @@ export interface UnflushedRequestBatch {
  * hasOutput 表示至少有一段非空文本需要写回输入框；hasAnyResult 表示至少有 requestKey 已经
  * 产出结果，即使结果是空字符串也算。空字符串用于不需要回填正文但仍要推进生命周期的路径。
  */
-export interface BufferedResultBatch {
+export interface BufferedResultBatch extends ToolResultDeliveryBatch {
   ids: string[];
-  output: string;
   outputCount: number;
   hasOutput: boolean;
   hasAnyResult: boolean;
@@ -46,6 +50,7 @@ type BufferedResult =
     kind: "raw";
   }
   | {
+    attachments: ToolResultAttachment[];
     content: string;
     isError: boolean;
     kind: "tool";
@@ -57,6 +62,11 @@ type BufferedResult =
 interface DuplicateResultContext {
   occurrence: number;
   total: number;
+}
+
+interface SaveToolResultOptions {
+  attachments?: readonly ToolResultAttachment[];
+  toolName?: string;
 }
 
 /**
@@ -175,7 +185,7 @@ export class ToolRequestRegistry {
     requestId: string,
     content: string,
     isError = false,
-    toolName?: string
+    options: SaveToolResultOptions = {}
   ): void {
     this.toolCallCount++;
     let systemNote: string | undefined;
@@ -184,12 +194,13 @@ export class ToolRequestRegistry {
     }
 
     this.bufferedResults.set(requestKey, {
+      attachments: (options.attachments ?? []).map((attachment) => ({ ...attachment })),
       content,
       isError,
       kind: "tool",
       requestId,
       systemNote,
-      toolName,
+      toolName: options.toolName,
     });
   }
 
@@ -230,6 +241,7 @@ export class ToolRequestRegistry {
    * 结果不会进入 output，但仍会让 hasAnyResult 为 true，供调用方标记对应请求已处理。
    */
   public buildBufferedResultBatch(requestKeys: readonly string[]): BufferedResultBatch {
+    const attachmentGroups: ToolResultAttachmentGroup[] = [];
     const orderedResults: string[] = [];
     let hasAnyResult = false;
     const toolRequestIdCounts = this.countToolRequestIds(requestKeys);
@@ -245,13 +257,24 @@ export class ToolRequestRegistry {
         this.getDuplicateResultContext(bufferedResult, toolRequestIdCounts, toolRequestIdOccurrences)
       );
       if (result) {
+        const outputIndex = orderedResults.length;
         orderedResults.push(result);
+        if (bufferedResult.kind === "tool" && bufferedResult.attachments.length > 0) {
+          attachmentGroups.push({
+            attachments: bufferedResult.attachments.map((attachment) => ({ ...attachment })),
+            outputIndex,
+            requestId: bufferedResult.requestId,
+            toolName: bufferedResult.toolName,
+          });
+        }
       }
     });
 
     return {
+      attachmentGroups,
       ids: [...requestKeys],
       output: orderedResults.join("\n\n"),
+      outputParts: orderedResults,
       outputCount: orderedResults.length,
       hasOutput: orderedResults.length > 0,
       hasAnyResult,

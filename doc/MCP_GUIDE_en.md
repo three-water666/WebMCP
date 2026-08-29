@@ -189,6 +189,7 @@ SSE example:
 The following capabilities are built into webcode and do not require third-party MCP server configuration:
 
 - `read_file`
+- `attach_file`
 - `write_file`
 - `edit_file`
 - `search_files`

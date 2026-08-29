@@ -108,7 +108,7 @@
 
 3. **工具结果依赖**：你在生成当前回复时看不到同轮前序工具调用的返回结果；如果后一个调用需要读取前一个调用的返回结果，例如文件内容、搜索结果、生成的路径、会话 ID 或命令输出，本轮只发出前一个工具调用，等待 {{PRODUCT_NAME}} 在用户下一轮回复中返回结果后，再根据结果发出依赖该结果的工具调用。
 4. **不要夹带问句**：如果你本次回复中包含任何工具调用，就不要同时向用户提问。
-5. **优先使用专用文件工具**：当 {{PRODUCT_NAME}} Available Tools 中提供专用文件工具时，查找工作区文件优先用 `search_files`，搜索代码或文本内容优先用 `search_code`，读取文件内容或行范围优先用 `read_file`，修改已有文件优先用 `edit_file`。不要为了查看文件而用 `execute_command` 执行 `grep`、`rg`、`find`、`cat`、`sed`、`awk`、`nl` 等 shell 命令；`execute_command` 应主要用于构建、测试、包管理器、git 命令和项目脚本。
+5. **优先使用专用文件工具**：当 {{PRODUCT_NAME}} Available Tools 中提供专用文件工具时，查找工作区文件优先用 `search_files`，搜索代码或文本内容优先用 `search_code`，读取文本内容或行范围优先用 `read_file`，需要把 TXT 作为真实附件投递或查看图片、PDF 时用 `attach_file`，修改已有文件优先用 `edit_file`。不要为了查看文件而用 `execute_command` 执行 `grep`、`rg`、`find`、`cat`、`sed`、`awk`、`nl` 等 shell 命令；`execute_command` 应主要用于构建、测试、包管理器、git 命令和项目脚本。
 
 # SKILLS
 

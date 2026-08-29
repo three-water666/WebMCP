@@ -17,6 +17,7 @@
 | 工具名 | 作用 |
 | --- | --- |
 | `read_file` | 读取 workspace 内的 UTF-8 文本文件，或读取 `.webcode/builtin-skills/...` 下的内置 Skill 只读虚拟文件；可用 `head`、`tail`、`start_line`、`end_line`、`show_line_numbers` 读取指定范围并显示行号。 |
+| `attach_file` | 把 workspace 内不超过 20 MB 的 UTF-8 TXT、PNG、JPEG、WebP、GIF 或 PDF 文件作为真实附件粘贴到当前 AI 对话，供具备相应能力的站点和模型查看；网页未确认接收粘贴时，会按原 `request_id` 返回附件投递错误。 |
 | `write_file` | 创建或完全覆盖 workspace 内的 UTF-8 文本文件。 |
 | `edit_file` | 对 workspace 内文本文件做精确文本替换或应用 unified diff patch，可用 `dryRun` 返回 diff 预览。 |
 | `search_files` | 按文件名或相对路径搜索文件，优先使用 ripgrep 文件枚举，支持子串、glob、默认不区分大小写，并默认尊重 ignore 文件。 |

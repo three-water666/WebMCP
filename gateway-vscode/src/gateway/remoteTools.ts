@@ -3,6 +3,7 @@ export function getRemoteToolPublicName(serverId: string, toolName: string): str
 }
 
 const LOCAL_PATH_TOOL_NAMES = new Set([
+    'attach_file',
     'read_file',
     'read_text_file',
     'read_multiple_files',

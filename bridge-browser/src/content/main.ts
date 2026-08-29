@@ -437,7 +437,7 @@ function runMainLoop() {
       // 按当前页面顺序收集结果，保证多工具调用的回填顺序和 AI 原始请求顺序一致。
       const resultBatch = requestRegistry.buildBufferedResultBatch(unflushedBatch.ids);
 
-      if (resultBatch.hasOutput && DOM) {
+      if ((resultBatch.hasOutput || resultBatch.attachmentGroups.length > 0) && DOM) {
         const selectors = DOM;
         Logger.log(
           `Batch finished: ${resultBatch.outputCount} tools. Writing...`,

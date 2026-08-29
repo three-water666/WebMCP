@@ -79,7 +79,7 @@ export class NetworkToolCallController {
       }
 
       const resultBatch = this.options.requestRegistry.buildBufferedResultBatch(pendingBatch.ids);
-      if (resultBatch.hasOutput) {
+      if (resultBatch.hasOutput || resultBatch.attachmentGroups.length > 0) {
         Logger.log(`Network batch finished: ${resultBatch.outputCount} tools. Writing...`, "success");
         this.options.toolActivityTracker.updateDelivery(resultBatch.ids, "delivering");
         this.options.deliver(resultBatch);

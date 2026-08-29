@@ -1,6 +1,7 @@
 import { PROTOCOL } from '@webcode/shared';
 
 import { isRecord, type MessageRequest, type ToolExecutionPayload } from '../types';
+import { formatGatewayToolResultData, parseGatewayToolResult } from '../modules/tool_result';
 import { getErrorMessage } from './errors';
 import { expireGatewaySession, recordGatewayActivity } from './session_health';
 import { getActiveProtocolSessionResult, type ActiveProtocolSessionResult } from './sessions';
@@ -219,32 +220,28 @@ function getToolPayload(request: MessageRequest): ToolExecutionPayload | null {
   return request.payload && typeof request.payload.name === "string" ? request.payload : null;
 }
 
-function parseSuccessfulGatewayResponse(result: unknown): { success: boolean; data?: string; error?: string } {
-  const textContent = formatGatewayToolContent(result);
+function parseSuccessfulGatewayResponse(result: unknown) {
+  const toolResult = parseGatewayToolResult(result);
   if (isRecord(result) && result.isError === true) {
     return {
       success: false,
-      error: textContent || "Tool execution failed.",
+      error: toolResult.text || "Tool execution failed.",
     };
   }
-  return { success: true, data: textContent };
-}
-
-function formatGatewayToolContent(result: unknown): string {
-  if (isRecord(result) && Array.isArray(result.content)) {
-    return result.content
-      .map(getGatewayTextContent)
-      .filter((text) => text.length > 0)
-      .join("\n");
+  if (toolResult.attachmentError) {
+    return {
+      success: false,
+      error: toolResult.attachmentError,
+    };
   }
-  return stringifyUnknown(result);
+  return { success: true, data: formatGatewayToolResultData(toolResult) };
 }
 
 async function readGatewayError(response: Response): Promise<string> {
   try {
     const resJson: unknown = await response.json();
     if (isRecord(resJson) && Array.isArray(resJson.content)) {
-      return formatGatewayToolContent(resJson);
+      return parseGatewayToolResult(resJson).text;
     }
     if (isRecord(resJson) && typeof resJson.error === "string") {
       return resJson.error;
@@ -253,10 +250,6 @@ async function readGatewayError(response: Response): Promise<string> {
   } catch {
     return `${response.status} - ${response.statusText}`;
   }
-}
-
-function getGatewayTextContent(item: unknown): string {
-  return isRecord(item) && typeof item.text === "string" ? item.text : "";
 }
 
 function stringifyUnknown(value: unknown): string {
