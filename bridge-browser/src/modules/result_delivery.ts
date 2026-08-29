@@ -171,32 +171,46 @@ async function deliverResultWithAttachments(
   const preparedGroups = prepared.preparedGroups;
   failures.forEach((failure) => Logger.log(failure.reason, "error"));
 
-  const preparedOutputText = applyAttachmentDeliveryFailures(resultBatch.outputParts, failures)
-    .join("\n\n");
-  const shouldAttachText = shouldAttachResultText(preparedOutputText, domSelectors);
-  const files = preparedGroups.flatMap((prepared) => prepared.files);
-  if (shouldAttachText) {
-    files.push(createTextAttachmentFile(preparedOutputText, BRANDING.resultFilePrefix));
+  let pasteDispatched = false;
+  for (const preparedGroup of preparedGroups) {
+    const pasteResult = await dispatchToolAttachments(preparedGroup.files, domSelectors);
+    pasteDispatched = pasteDispatched || pasteResult.dispatched;
+    appendPasteFailure(preparedGroup.group, pasteResult, failures);
+    if (pasteResult.acknowledged) {
+      Logger.log(`Attachment paste acknowledged (${preparedGroup.files.length} file(s))`, "success");
+    }
   }
 
-  const pasteResult = await dispatchToolAttachments(files, domSelectors);
-  appendPasteFailures(preparedGroups, pasteResult, failures);
-  if (pasteResult.acknowledged) {
-    Logger.log(`Attachment paste acknowledged (${files.length} file(s))`, "success");
+  const outputText = applyAttachmentDeliveryFailures(resultBatch.outputParts, failures).join("\n\n");
+  const shouldAttachText = shouldAttachResultText(outputText, domSelectors);
+  let resultTextAcknowledged = false;
+  let resultTextFailure: string | undefined;
+  if (shouldAttachText) {
+    const textFile = createTextAttachmentFile(outputText, BRANDING.resultFilePrefix);
+    const pasteResult = await dispatchToolAttachments([textFile], domSelectors);
+    pasteDispatched = pasteDispatched || pasteResult.dispatched;
+    resultTextAcknowledged = pasteResult.acknowledged;
+    if (pasteResult.acknowledged) {
+      Logger.log("Oversized result text paste acknowledged", "success");
+    } else {
+      resultTextFailure = `Could not deliver the oversized result text attachment: ${getPasteFailureDetail(pasteResult)}`;
+      Logger.log(resultTextFailure, "error");
+    }
   }
 
   if (failures.length > 0) {
     notifyAttachmentDeliveryFailure(failures[0]?.reason);
+  } else if (resultTextFailure) {
+    notifyAttachmentDeliveryFailure(resultTextFailure);
   }
 
-  const outputText = applyAttachmentDeliveryFailures(resultBatch.outputParts, failures).join("\n\n");
-  const inlineText = getAttachmentInlineText(outputText, shouldAttachText, pasteResult.acknowledged);
+  const inlineText = getAttachmentInlineText(outputText, shouldAttachText, resultTextAcknowledged);
   const writeResult = await writeToInputBoxWithVerification(inlineText, domSelectors.inputArea);
   if (!writeResult.delivered) {
     notifyResultDeliveryFailure(true);
   }
 
-  return toDeliveryStatus(pasteResult.dispatched, writeResult, true);
+  return toDeliveryStatus(pasteDispatched, writeResult, true);
 }
 
 function shouldAttachResultText(text: string, domSelectors: SiteSelectors): boolean {
@@ -225,21 +239,22 @@ async function dispatchToolAttachments(
   return pasteResult;
 }
 
-function appendPasteFailures(
-  preparedGroups: readonly { group: ToolResultAttachmentGroup }[],
+function appendPasteFailure(
+  group: ToolResultAttachmentGroup,
   pasteResult: AttachmentPasteDispatchResult,
   failures: ToolResultAttachmentFailure[]
 ): void {
   if (pasteResult.acknowledged) {return;}
-  const detail = pasteResult.dispatched
+  const reason = buildAttachmentFailureReason(group, getPasteFailureDetail(pasteResult));
+  failures.push(toAttachmentFailure(group, reason));
+  Logger.log(reason, "error");
+}
+
+function getPasteFailureDetail(pasteResult: AttachmentPasteDispatchResult): string {
+  return pasteResult.dispatched
     ? "the target page did not acknowledge the simulated paste event. " +
       "The site may not support file uploads, paste uploads, or this file format."
     : pasteResult.reason ?? "the simulated paste event could not be dispatched.";
-  preparedGroups.forEach(({ group }) => {
-    const reason = buildAttachmentFailureReason(group, detail);
-    failures.push(toAttachmentFailure(group, reason));
-    Logger.log(reason, "error");
-  });
 }
 
 function getAttachmentInlineText(

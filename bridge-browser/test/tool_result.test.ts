@@ -3,6 +3,9 @@ import {
   formatGatewayToolResultData,
   normalizeToolResultData,
   parseGatewayToolResult,
+  TOOL_ATTACHMENT_MAX_BYTES,
+  TOOL_ATTACHMENT_MAX_ENCODED_PAYLOAD_BYTES,
+  TOOL_ATTACHMENT_PAYLOAD_LIMIT_ERROR,
   type ToolResultAttachment,
 } from "../src/modules/tool_result";
 import { isPasteEventAcknowledged } from "../src/modules/attachment_delivery";
@@ -14,6 +17,8 @@ async function main(): Promise<void> {
   await runTest("extracts UTF-8 TXT resource attachments", testTextResourceAttachment);
   await runTest("keeps text-only gateway results backward compatible", testTextOnlyResult);
   await runTest("rejects unsupported attachment MIME types", testUnsupportedMimeType);
+  await runTest("rejects inherited MIME whitelist keys", testInheritedMimeType);
+  await runTest("rejects cumulative attachment payloads above the runtime limit", testAttachmentPayloadLimit);
   await runTest("preserves attachments in buffered result batches", testBufferedAttachments);
   await runTest("rewrites only the failed attachment result", testAttachmentFailureResult);
   await runTest("distinguishes acknowledged paste events", testPasteAcknowledgement);
@@ -87,6 +92,48 @@ function testUnsupportedMimeType(): void {
   });
 
   assertEqual(result.attachments.length, 0, "unsupported resource became an upload attachment");
+}
+
+function testInheritedMimeType(): void {
+  ["constructor", "__proto__"].forEach((mimeType) => {
+    const result = parseGatewayToolResult({
+      content: [{
+        type: "image",
+        mimeType,
+        data: PNG_BASE64,
+      }],
+    });
+
+    assertEqual(result.attachments.length, 0, `inherited MIME key ${mimeType} was accepted`);
+  });
+}
+
+function testAttachmentPayloadLimit(): void {
+  const nearLimitBase64 = createBase64OfDecodedSize(TOOL_ATTACHMENT_MAX_BYTES);
+  assert(
+    nearLimitBase64.length * 3 > TOOL_ATTACHMENT_MAX_ENCODED_PAYLOAD_BYTES,
+    "payload fixture does not exceed the cumulative encoded limit"
+  );
+  const result = parseGatewayToolResult({
+    content: Array.from({ length: 3 }, (_, index) => ({
+      type: "resource",
+      resource: {
+        uri: `workspace:///attachment-${index + 1}.png`,
+        mimeType: "image/png",
+        blob: nearLimitBase64,
+      },
+    })),
+  });
+
+  assertEqual(result.attachments.length, 0, "over-limit attachments remained transportable");
+  assertEqual(result.attachmentError, TOOL_ATTACHMENT_PAYLOAD_LIMIT_ERROR, "payload error was not deterministic");
+}
+
+function createBase64OfDecodedSize(size: number): string {
+  const remainder = size % 3;
+  const padding = remainder === 1 ? "==" : remainder === 2 ? "=" : "";
+  const encodedLength = Math.ceil(size / 3) * 4;
+  return "A".repeat(encodedLength - padding.length) + padding;
 }
 
 async function testBufferedAttachments(): Promise<void> {

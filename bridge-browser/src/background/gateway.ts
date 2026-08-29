@@ -228,6 +228,12 @@ function parseSuccessfulGatewayResponse(result: unknown) {
       error: toolResult.text || "Tool execution failed.",
     };
   }
+  if (toolResult.attachmentError) {
+    return {
+      success: false,
+      error: toolResult.attachmentError,
+    };
+  }
   return { success: true, data: formatGatewayToolResultData(toolResult) };
 }
 

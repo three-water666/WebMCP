@@ -31,6 +31,23 @@ async function main(): Promise<void> {
     assert(page.input.innerText.includes('"output": "text result"'), "unrelated result was changed");
     assert(delivery.delivered, "attachment failure text did not remain sendable");
   });
+  await runTest("acknowledges each attachment group independently", async () => {
+    const page = installFakePage([true, false]);
+    const delivery = await deliverResult(createMultiAttachmentBatch(), SELECTORS);
+
+    assertEqual(page.actions[0], "paste", "first attachment group was not pasted");
+    assertEqual(page.actions[1], "wait:2000", "first attachment group did not settle independently");
+    assertEqual(page.actions[2], "paste", "second attachment group was flattened into the first paste");
+    assertEqual(page.actions[3], "wait:2000", "second attachment group did not settle independently");
+    assertEqual(page.actions[4], "write", "partial attachment results were not written after both pastes");
+    assertEqual(page.pastedFileNames[0]?.join(","), "first.png", "first paste contained another group");
+    assertEqual(page.pastedFileNames[1]?.join(","), "second.png", "second paste contained another group");
+
+    const results = parseInputResults(page.input.innerText);
+    assertEqual(results.get("first-id")?.status, "success", "acknowledged group became an error");
+    assertEqual(results.get("second-id")?.status, "error", "unacknowledged group remained successful");
+    assert(delivery.delivered, "partial attachment results were not sendable");
+  });
 }
 
 const SELECTORS: SiteSelectors = {
@@ -63,6 +80,35 @@ function createBatch(): ToolResultDeliveryBatch {
   };
 }
 
+function createMultiAttachmentBatch(): ToolResultDeliveryBatch {
+  const outputParts = [
+    formatResult("first-id", "first attachment prepared"),
+    formatResult("second-id", "second attachment prepared"),
+  ];
+  return {
+    attachmentGroups: [
+      createAttachmentGroup("first-id", "first.png", 0),
+      createAttachmentGroup("second-id", "second.png", 1),
+    ],
+    output: outputParts.join("\n\n"),
+    outputParts,
+  };
+}
+
+function createAttachmentGroup(requestId: string, name: string, outputIndex: number) {
+  return {
+    attachments: [{
+      data: PNG_BASE64,
+      mimeType: "image/png",
+      name,
+      size: 8,
+    }],
+    outputIndex,
+    requestId,
+    toolName: "attach_file",
+  };
+}
+
 function formatResult(requestId: string, output: string): string {
   return `\`\`\`json\n${JSON.stringify({
     mcp_action: "result",
@@ -75,10 +121,13 @@ function formatResult(requestId: string, output: string): string {
 interface FakePage {
   actions: string[];
   input: { innerText: string };
+  pastedFileNames: string[][];
 }
 
-function installFakePage(acknowledgePaste: boolean): FakePage {
+function installFakePage(acknowledgePaste: boolean | readonly boolean[]): FakePage {
   const actions: string[] = [];
+  const pastedFileNames: string[][] = [];
+  let pasteIndex = 0;
   activeActions = actions;
   let innerText = "";
   const input = {
@@ -86,7 +135,13 @@ function installFakePage(acknowledgePaste: boolean): FakePage {
     dispatchEvent: (event: Event) => {
       if (event.type === "paste") {
         actions.push("paste");
-        if (acknowledgePaste) {event.preventDefault();}
+        const clipboardData = (event as ClipboardEvent).clipboardData;
+        pastedFileNames.push(Array.from(clipboardData?.files ?? []).map((file) => file.name));
+        const acknowledged = typeof acknowledgePaste === "boolean"
+          ? acknowledgePaste
+          : acknowledgePaste[pasteIndex] ?? false;
+        pasteIndex++;
+        if (acknowledged) {event.preventDefault();}
       }
       return !event.defaultPrevented;
     },
@@ -109,7 +164,18 @@ function installFakePage(acknowledgePaste: boolean): FakePage {
     },
   });
 
-  return { actions, input };
+  return { actions, input, pastedFileNames };
+}
+
+function parseInputResults(value: string): Map<string, Record<string, unknown>> {
+  const results = new Map<string, Record<string, unknown>>();
+  for (const match of value.matchAll(/```json\n([\s\S]*?)\n```/g)) {
+    const result = JSON.parse(match[1] ?? "{}") as Record<string, unknown>;
+    if (typeof result.request_id === "string") {
+      results.set(result.request_id, result);
+    }
+  }
+  return results;
 }
 
 function installBrowserGlobals(): void {

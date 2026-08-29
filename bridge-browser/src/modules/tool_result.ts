@@ -1,4 +1,10 @@
 export const TOOL_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+// Chromium rejects serialized extension messages above 64 MiB. Keep 8 MiB for
+// the response envelope, result text, filenames, MIME types, and other metadata.
+export const TOOL_ATTACHMENT_MAX_ENCODED_PAYLOAD_BYTES = 56 * 1024 * 1024;
+export const TOOL_ATTACHMENT_PAYLOAD_LIMIT_ERROR =
+  "Tool result attachments exceed WebCode's 56 MiB encoded browser transport limit. " +
+  "Reduce the number or size of attachments and retry.";
 
 export interface ToolResultAttachment {
   data: string;
@@ -31,36 +37,52 @@ export interface ToolResultData {
   text: string;
 }
 
-const SUPPORTED_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
-  "application/pdf": ".pdf",
-  "image/gif": ".gif",
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "text/plain": ".txt",
-};
+export interface ParsedGatewayToolResultData extends ToolResultData {
+  attachmentError?: string;
+}
 
-export function parseGatewayToolResult(result: unknown): ToolResultData {
+const SUPPORTED_MIME_EXTENSIONS: ReadonlyMap<string, string> = new Map([
+  ["application/pdf", ".pdf"],
+  ["image/gif", ".gif"],
+  ["image/jpeg", ".jpg"],
+  ["image/png", ".png"],
+  ["image/webp", ".webp"],
+  ["text/plain", ".txt"],
+]);
+
+export function parseGatewayToolResult(result: unknown): ParsedGatewayToolResultData {
   if (!isRecord(result) || !Array.isArray(result.content)) {
     return { attachments: [], text: stringifyUnknown(result) };
   }
 
   const attachments: ToolResultAttachment[] = [];
   const textParts: string[] = [];
+  let encodedPayloadBytes = 0;
+  let attachmentError: string | undefined;
   result.content.forEach((item) => {
     if (!isRecord(item)) {return;}
     if (item.type === "text" && typeof item.text === "string") {
       if (item.text.length > 0) {textParts.push(item.text);}
       return;
     }
+    if (attachmentError) {return;}
 
     const attachment = parseContentAttachment(item, attachments.length + 1);
-    if (attachment) {attachments.push(attachment);}
+    if (!attachment) {return;}
+
+    encodedPayloadBytes += attachment.data.length;
+    if (encodedPayloadBytes > TOOL_ATTACHMENT_MAX_ENCODED_PAYLOAD_BYTES) {
+      attachments.length = 0;
+      attachmentError = TOOL_ATTACHMENT_PAYLOAD_LIMIT_ERROR;
+      return;
+    }
+    attachments.push(attachment);
   });
 
   return {
     attachments,
     text: textParts.join("\n"),
+    ...(attachmentError ? { attachmentError } : {}),
   };
 }
 
@@ -182,7 +204,7 @@ function createAttachment(
   }
 
   const mimeType = candidate.mimeType.trim().toLowerCase();
-  const extension = SUPPORTED_MIME_EXTENSIONS[mimeType];
+  const extension = SUPPORTED_MIME_EXTENSIONS.get(mimeType);
   if (!extension) {return null;}
 
   const normalizedBase64 = normalizeBase64(candidate.data);
