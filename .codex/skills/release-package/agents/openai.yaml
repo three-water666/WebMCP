@@ -1,4 +1,0 @@
-interface:
-  display_name: "Release Package"
-  short_description: "Run the webcode release workflow."
-  default_prompt: "Use $release-package to prepare and publish a new webcode release."

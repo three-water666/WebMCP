@@ -28,5 +28,6 @@ skills-lock.json
 .vscode-test
 /evals/runs/
 /evals/live-profiles/
+/evals/manual-browser-profiles/
 /bridge-browser/public/generated/
 /evals/.playwright-cli/
