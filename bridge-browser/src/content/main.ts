@@ -12,6 +12,7 @@ import { AutoInitPromptController } from "./auto_init_prompt";
 import { createApprovalState, parseStoredApprovalEntries, type ApprovalState } from "./approval_policy";
 import { CompletionNotifier } from "./completion_notifier";
 import { DomToolActivityController } from "./dom_tool_activity";
+import { DomToolTurnController } from "./dom_tool_turn";
 import { hasPromptResourceChange, loadPromptsFromStorage } from "./prompt_resources";
 import { createNetworkCaptureRuntime } from "./network_capture_runtime";
 import { ResultDeliveryController } from "./result_delivery_controller";
@@ -194,6 +195,7 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
     DOM = matchedSite.selectors;
     currentSiteName = matchedSite.name ?? matchedSite.id;
     domToolActivity.reset();
+    domToolTurns.reset();
     networkCapture.configure(getSiteNetworkCaptureConfig(matchedSite.capture));
     completionNotifier.reset();
     autoInitPrompt.setupTrigger();
@@ -206,12 +208,14 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
   DOM = null;
   currentSiteName = null;
   domToolActivity.reset();
+  domToolTurns.reset();
   networkCapture.reset();
   console.log(`${BRANDING.productName}: Site '${siteId}' is not configured in VS Code. Idle.`);
 }
 
 function resetCurrentSite(): void {
   domToolActivity.reset();
+  domToolTurns.reset();
   networkCapture.reset();
   DOM = null;
   currentSiteName = null;
@@ -243,6 +247,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 const requestRegistry = new ToolRequestRegistry();
 const toolActivityTracker = new ToolActivityTracker();
 const domToolActivity = new DomToolActivityController(toolActivityTracker);
+const domToolTurns = new DomToolTurnController(requestRegistry);
 new ToolActivityOverlay(toolActivityTracker);
 let lastProgressLogTime = 0;
 let lastProgressStatus = "";
@@ -288,6 +293,7 @@ const networkCapture = createNetworkCaptureRuntime({
 const resultDelivery = new ResultDeliveryController({
   getAutoSend: () => CONFIG.autoSend,
   hasPendingTurns: () => networkCapture.hasPendingTurns(),
+  onBatchFinalized: (requestKeys) => domToolTurns.finalizeRequests(requestKeys),
   requestRegistry,
   scheduleMainLoop,
   toolActivityTracker,
@@ -340,14 +346,9 @@ function runMainLoop() {
   if (!latestCodeBlocks) { return; }
 
   const { messageIndex, messageElement, codeElements } = latestCodeBlocks;
-  const messageLocation = {
-    conversationKey: location.href,
-    messageIndex,
-  };
-  const skipNewCapturesForVirtualizedHistory = UI.isLikelyViewingVirtualizedHistory(DOM);
-
-  // 当前轮次对象只记录本次扫描看到的 requestKey；去重、排序和已回填过滤由 registry 统一处理。
-  const currentTurn = requestRegistry.createTurn();
+  const messageLocation = { conversationKey: location.href, messageIndex };
+  const viewingVirtualizedHistory = UI.isLikelyViewingVirtualizedHistory(DOM);
+  const isActiveDomTurn = domToolTurns.observeMessage(messageElement, messageLocation, viewingVirtualizedHistory);
 
   for (const [codeBlockIndex, codeEl] of codeElements.entries()) {
     const codeElement = codeEl as HTMLElement;
@@ -375,11 +376,11 @@ function runMainLoop() {
       const isProcessing = requestRegistry.isRunning(requestIdentity.requestKey);
       const isKnown = requestRegistry.hasSeen(requestIdentity.requestKey);
 
-      if (!isKnown && skipNewCapturesForVirtualizedHistory) {
-        logVirtualizedHistorySkip(payload.name);
+      if (!isKnown && !isActiveDomTurn) {
+        if (viewingVirtualizedHistory) {logVirtualizedHistorySkip(payload.name);}
         continue;
       }
-      currentTurn.add(requestIdentity.requestKey);
+      if (isActiveDomTurn) {domToolTurns.recordRequest(codeBlockIndex, requestIdentity.requestKey);}
 
       if (!isKnown) {
         // 新发现的工具调用只进入执行路径一次，后续扫描只会根据 registry 中的执行状态刷新视觉状态。
@@ -408,10 +409,8 @@ function runMainLoop() {
         }
       }
     } catch (error) {
-      const isKnown = Boolean(codeElement.dataset.mcpRequestKey && requestRegistry.hasSeen(codeElement.dataset.mcpRequestKey));
-
-      if (!isKnown && skipNewCapturesForVirtualizedHistory) {
-        logVirtualizedHistorySkip();
+      if (!isActiveDomTurn) {
+        if (viewingVirtualizedHistory) {logVirtualizedHistorySkip();}
         continue;
       }
 
@@ -423,12 +422,12 @@ function runMainLoop() {
         codeBlockIndex,
         error
       );
-      currentTurn.add(requestIdentity.requestKey);
+      domToolTurns.recordRequest(codeBlockIndex, requestIdentity.requestKey);
     }
   }
 
   // 只处理当前轮次里还没有写回过的请求。已 flush 的 requestKey 不会再次写入输入框。
-  const unflushedBatch = currentTurn.getUnflushedBatch();
+  const unflushedBatch = domToolTurns.getUnflushedBatch();
 
   if (unflushedBatch.hasRequests) {
     // 工具完成的判定由 registry 统一计算：已不在执行中，并且已经有结果可回填。
@@ -458,6 +457,7 @@ function runMainLoop() {
         // 某些路径可能没有文本输出；它们完成后也要标记为已处理。
         if (resultBatch.hasAnyResult) {
           requestRegistry.markFlushed(resultBatch.ids);
+          domToolTurns.finalizeRequests(resultBatch.ids);
           toolActivityTracker.updateDelivery(resultBatch.ids, "delivered");
         }
       }
