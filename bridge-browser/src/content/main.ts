@@ -339,7 +339,11 @@ function runMainLoop() {
   const latestCodeBlocks = UI.getLatestResponseCodeBlocks(DOM);
   if (!latestCodeBlocks) { return; }
 
-  const { messageElement, codeElements } = latestCodeBlocks;
+  const { messageIndex, messageElement, codeElements } = latestCodeBlocks;
+  const messageLocation = {
+    conversationKey: location.href,
+    messageIndex,
+  };
   const skipNewCapturesForVirtualizedHistory = UI.isLikelyViewingVirtualizedHistory(DOM);
 
   // 当前轮次对象只记录本次扫描看到的 requestKey；去重、排序和已回填过滤由 registry 统一处理。
@@ -359,11 +363,11 @@ function runMainLoop() {
         UI.clearVisualState(codeElement);
       }
 
-      // requestKey 按消息元素和代码块生成，同一块重复扫描稳定，新会话中的相同调用也不会碰撞。
+      // requestKey 按会话位置和代码块生成，DOM 节点整体替换时保持稳定，新会话也不会碰撞。
       const requestIdentity = toolCallTracker.ensurePayloadRequestIdentity(
         payload,
         codeElement,
-        messageElement,
+        messageLocation,
         codeBlockIndex
       );
       toolCallTracker.clearProtocolErrorFeedbackState(requestIdentity.requestKey);
@@ -415,7 +419,7 @@ function runMainLoop() {
       const requestIdentity = toolCallTracker.handleProtocolErrorBlock(
         codeElement,
         textContent,
-        messageElement,
+        messageLocation,
         codeBlockIndex,
         error
       );

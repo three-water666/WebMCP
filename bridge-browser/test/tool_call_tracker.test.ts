@@ -22,16 +22,58 @@ async function main(): Promise<void> {
   });
 
   await runTest("keeps a DOM call stable across code element replacement", () => {
-    const message = {} as Element;
-    const first = tracker.ensurePayloadRequestIdentity(parseCall(), fakeCodeElement(), message, 0);
-    const replacement = tracker.ensurePayloadRequestIdentity(parseCall(), fakeCodeElement(), message, 0);
+    const location = domLocation("conversation-1", 0);
+    const first = tracker.ensurePayloadRequestIdentity(parseCall(), fakeCodeElement(), location, 0);
+    const replacement = tracker.ensurePayloadRequestIdentity(parseCall(), fakeCodeElement(), location, 0);
     assertEqual(replacement.requestKey, first.requestKey, "replacement code element changed the call key");
   });
 
+  await runTest("keeps a DOM call stable across message element replacement", () => {
+    const first = tracker.ensurePayloadRequestIdentity(
+      parseCall(),
+      fakeCodeElement(),
+      domLocation("conversation-1", 0),
+      0
+    );
+    const replacement = tracker.ensurePayloadRequestIdentity(
+      parseCall(),
+      fakeCodeElement(),
+      domLocation("conversation-1", 0),
+      0
+    );
+    assertEqual(replacement.requestKey, first.requestKey, "replacement message element changed the call key");
+  });
+
   await runTest("isolates identical calls in separate conversation messages", () => {
-    const first = tracker.ensurePayloadRequestIdentity(parseCall(), fakeCodeElement(), {} as Element, 0);
-    const second = tracker.ensurePayloadRequestIdentity(parseCall(), fakeCodeElement(), {} as Element, 0);
+    const first = tracker.ensurePayloadRequestIdentity(
+      parseCall(),
+      fakeCodeElement(),
+      domLocation("conversation-1", 0),
+      0
+    );
+    const second = tracker.ensurePayloadRequestIdentity(
+      parseCall(),
+      fakeCodeElement(),
+      domLocation("conversation-1", 1),
+      0
+    );
     assert(first.requestKey !== second.requestKey, "separate messages reused an internal call key");
+  });
+
+  await runTest("isolates identical DOM calls in separate conversations", () => {
+    const first = tracker.ensurePayloadRequestIdentity(
+      parseCall(),
+      fakeCodeElement(),
+      domLocation("conversation-1", 0),
+      0
+    );
+    const second = tracker.ensurePayloadRequestIdentity(
+      parseCall(),
+      fakeCodeElement(),
+      domLocation("conversation-2", 0),
+      0
+    );
+    assert(first.requestKey !== second.requestKey, "separate conversations reused an internal call key");
   });
 
   await runTest("scopes network calls to their conversation turn", () => {
@@ -49,6 +91,10 @@ async function main(): Promise<void> {
 
 function fakeCodeElement(): HTMLElement {
   return { dataset: {} } as HTMLElement;
+}
+
+function domLocation(conversationKey: string, messageIndex: number) {
+  return { conversationKey, messageIndex };
 }
 
 function installBrowserGlobals(): void {

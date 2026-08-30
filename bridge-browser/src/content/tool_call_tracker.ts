@@ -18,24 +18,27 @@ interface ToolCallTrackerOptions {
   scheduleMainLoop: (delayMs: number) => void;
 }
 
+export interface DomToolCallLocation {
+  conversationKey: string;
+  messageIndex: number;
+}
+
 const STABILIZATION_TIMEOUT_MS = 3000;
 
 export class ToolCallTracker {
   private readonly blockStates = new WeakMap<Element, BlockState>();
-  private readonly domMessageScopes = new WeakMap<Element, string>();
   private readonly protocolErrorFeedbackRequests = new Set<string>();
-  private domMessageSequence = 0;
 
   public constructor(private readonly options: ToolCallTrackerOptions) {}
 
   public ensurePayloadRequestIdentity(
     payload: ParsedToolCallPayload,
     codeEl: HTMLElement,
-    messageElement: Element,
+    messageLocation: DomToolCallLocation,
     codeBlockIndex: number
   ): ToolRequestIdentity {
     const signature = buildToolCallSignature(payload);
-    const scope = `${this.ensureDomMessageScope(messageElement)}:${codeBlockIndex}`;
+    const scope = buildDomRequestScope(messageLocation, codeBlockIndex);
     return {
       requestKey: ensureElementRequestKey(codeEl, scope, signature),
     };
@@ -60,13 +63,13 @@ export class ToolCallTracker {
   public handleProtocolErrorBlock(
     codeEl: HTMLElement,
     textContent: string,
-    messageElement: Element,
+    messageLocation: DomToolCallLocation,
     codeBlockIndex: number,
     error: unknown
   ): ToolRequestIdentity {
     const now = Date.now();
     const state = this.blockStates.get(codeEl);
-    const scope = `${this.ensureDomMessageScope(messageElement)}:${codeBlockIndex}`;
+    const scope = buildDomRequestScope(messageLocation, codeBlockIndex);
     const identity = getProtocolErrorIdentity(textContent, codeEl, scope);
 
     if (state?.text !== textContent) {
@@ -157,15 +160,6 @@ export class ToolCallTracker {
   private scheduleStabilizationCheck(): void {
     this.options.scheduleMainLoop(STABILIZATION_TIMEOUT_MS + 50);
   }
-
-  private ensureDomMessageScope(messageElement: Element): string {
-    const existing = this.domMessageScopes.get(messageElement);
-    if (existing) {return existing;}
-
-    const scope = `dom_message_${++this.domMessageSequence}`;
-    this.domMessageScopes.set(messageElement, scope);
-    return scope;
-  }
 }
 
 export function logToolSummary(payload: ToolExecutionPayload): void {
@@ -221,6 +215,14 @@ function hashStableString(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(36);
+}
+
+function buildDomRequestScope(
+  messageLocation: DomToolCallLocation,
+  codeBlockIndex: number
+): string {
+  const conversationHash = hashStableString(messageLocation.conversationKey);
+  return `dom_${conversationHash}_${messageLocation.messageIndex}:${codeBlockIndex}`;
 }
 
 function ensureElementRequestKey(
