@@ -7,6 +7,7 @@ import type { BufferedResultBatch, ToolRequestRegistry } from "./tool_request_re
 interface ResultDeliveryControllerOptions {
   getAutoSend: () => boolean;
   hasPendingTurns: () => boolean;
+  onBatchFinalized?: (requestKeys: readonly string[]) => void;
   requestRegistry: ToolRequestRegistry;
   scheduleMainLoop: (delayMs: number) => void;
   toolActivityTracker: ToolActivityTracker;
@@ -30,7 +31,7 @@ export class ResultDeliveryController {
     void UI.deliverResult(resultBatch, selectors)
       .then((delivery) => {
         batchFinalized = true;
-        this.options.requestRegistry.markFlushed(resultBatch.ids);
+        this.finalizeBatch(resultBatch.ids);
         if (!delivery.delivered) {
           this.handleDeliveryFailure(resultBatch);
           return;
@@ -41,11 +42,16 @@ export class ResultDeliveryController {
       })
       .catch((error: unknown) => {
         batchFinalized = true;
-        this.options.requestRegistry.markFlushed(resultBatch.ids);
+        this.finalizeBatch(resultBatch.ids);
         this.options.toolActivityTracker.updateDelivery(resultBatch.ids, "failed");
         Logger.log(`Result delivery failed: ${getErrorMessage(error)}`, "error");
       })
       .finally(() => this.finishDelivery(batchFinalized));
+  }
+
+  private finalizeBatch(requestKeys: readonly string[]): void {
+    this.options.requestRegistry.markFlushed(requestKeys);
+    this.options.onBatchFinalized?.(requestKeys);
   }
 
   private handleDeliveryFailure(resultBatch: BufferedResultBatch): void {
