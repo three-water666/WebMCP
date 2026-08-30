@@ -110,9 +110,9 @@ export class ToolRequestRegistry {
   private toolCallCount = 0;
 
   /**
-   * 创建一次页面扫描轮次的临时收集器。
+   * 创建一个由调用方控制生命周期的工具调用轮次收集器。
    *
-   * ToolRequestTurn 只保存本次扫描看到的 requestKey 及其顺序；跨轮次状态仍由 registry 持有。
+   * DOM 捕获会让同一个实例跨多次流式扫描存活；网络捕获仍可直接使用 registry 的批处理方法。
    */
   public createTurn(): ToolRequestTurn {
     return new ToolRequestTurn(this);
@@ -314,39 +314,35 @@ export class ToolRequestRegistry {
 }
 
 /**
- * 一次 runMainLoop 扫描过程中的 requestKey 收集器。
+ * 一个工具调用轮次中的 requestKey 收集器。
  *
- * 它只保存本轮扫描看到的 ID，并保持页面出现顺序。生命周期很短，每次 runMainLoop 都会创建
- * 新实例；跨轮次的执行/回填状态由 ToolRequestRegistry 管理。
+ * DOM 流式输出会在多次扫描中逐步补充代码块，因此收集器按代码块位置更新 requestKey，并由
+ * 上层决定何时释放。跨轮次的执行、结果和已回填状态仍由 ToolRequestRegistry 管理。
  */
 export class ToolRequestTurn {
   /**
-   * 当前扫描轮次内按页面顺序出现的 requestKey。
+   * 代码块位置到当前 requestKey 的映射。
    *
-   * 后续回填会按这个顺序合并结果，保证多工具调用结果顺序和 AI 原始请求顺序一致。
+   * 流式 JSON 可能先产生一个临时的协议错误身份，随后补全为有效调用。按位置覆盖可以避免旧身份
+   * 永久留在持久化轮次中，同时在较早代码块暂时离开 DOM 时保留已经发现的调用。
    */
-  private readonly requestKeys: string[] = [];
-
-  /**
-   * 当前扫描轮次内的去重集合。
-   *
-   * 同一个 requestKey 可能因为重复代码块、协议错误反馈或 DOM 结构变化被看到多次；Set 用来
-   * 保证 requestKeys 中只出现一次。
-   */
-  private readonly requestKeySet = new Set<string>();
+  private readonly requestKeysByCodeBlock = new Map<number, string>();
 
   public constructor(private readonly registry: ToolRequestRegistry) {}
 
   /**
-   * 记录本轮扫描看到的一个 requestKey。
-   *
-   * null 表示调用方明确没有要纳入本轮批处理的 requestKey；这种情况直接忽略。
+   * 记录指定代码块位置当前对应的 requestKey。
    */
-  public add(requestKey: string | null): void {
-    if (!requestKey || this.requestKeySet.has(requestKey)) {return;}
+  public set(codeBlockIndex: number, requestKey: string): void {
+    this.requestKeysByCodeBlock.set(codeBlockIndex, requestKey);
+  }
 
-    this.requestKeys.push(requestKey);
-    this.requestKeySet.add(requestKey);
+  /**
+   * 判断给定的一批 requestKey 是否属于这个轮次。
+   */
+  public hasAny(requestKeys: readonly string[]): boolean {
+    const candidates = new Set(requestKeys);
+    return this.getOrderedRequestKeys().some((requestKey) => candidates.has(requestKey));
   }
 
   /**
@@ -355,7 +351,14 @@ export class ToolRequestTurn {
    * 具体的已回填过滤和完成状态计算交给 registry，这个对象只提供本轮 ID 的有序列表。
    */
   public getUnflushedBatch(): UnflushedRequestBatch {
-    return this.registry.getUnflushedBatch(this.requestKeys);
+    return this.registry.getUnflushedBatch(this.getOrderedRequestKeys());
+  }
+
+  private getOrderedRequestKeys(): string[] {
+    const orderedKeys = [...this.requestKeysByCodeBlock.entries()]
+      .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+      .map(([, requestKey]) => requestKey);
+    return [...new Set(orderedKeys)];
   }
 }
 
