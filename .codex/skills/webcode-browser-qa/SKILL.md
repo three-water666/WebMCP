@@ -1,58 +1,53 @@
 ---
 name: webcode-browser-qa
-description: Suggest interactive end-to-end QA for relevant WebCode browser and VS Code changes, and lead it only after the user explicitly requests or approves the workflow. Do not start QA automatically after changes or use it for ordinary unit-only changes.
+description: 针对相关的 WebCode 浏览器和 VS Code 改动建议进行交互式端到端 QA，并且仅在用户明确请求或同意后主持该工作流。不要在改动后自动启动 QA，也不要将它用于普通的仅涉及单元测试的改动。
 ---
 
-# WebCode Browser QA
+# WebCode 浏览器 QA
 
-Use this workflow to explore the affected product flow, adapt actions to observed state, collect
-evidence, and report bugs after the user authorizes interactive QA. Agent-eval scenarios may
-supply a fixed task, isolated code fixture, and optional deterministic checks, but the Codex
-operator owns the test actions and verdict.
+语言：中文 | [English](SKILL_en.md)
 
-## Authorization
+用户授权交互式 QA 后，使用此工作流探索受影响的产品流程，根据观察到的状态调整操作、
+收集证据并报告缺陷。智能体评测场景可以提供固定任务、隔离的代码夹具和可选的确定性检查，
+但测试操作和最终结论由 Codex 操作者负责。
 
-- After relevant changes to capture, initialization, approvals, result delivery, selectors,
-  browser launch, extension UI, settings, commands, or editor navigation, you may tell the user
-  this skill is available and briefly state what it would validate.
-- Do not run `qa:start`, open or drive a browser or VS Code session, or otherwise begin this
-  workflow unless the user explicitly requests it or agrees to the suggestion.
-- A request to implement, fix, review, or test the code does not by itself authorize interactive
-  QA. Ordinary unit, build, lint, and deterministic checks remain within the original task scope.
-- If the user does not authorize interactive QA, do not block completion; report that it was not
-  run when that context is useful.
+## 授权
 
-After authorization, read the repository-root `README.md` for the current WebCode setup and basic
-conversation workflow, then read [references/commands.md](references/commands.md) before starting
-a session. Read only the relevant section of [references/charters.md](references/charters.md) for
-the changed behavior. Also use the `playwright-cli` skill for all browser and VS Code Workbench
-operations.
+- 对捕获、初始化、审批、结果传递、选择器、浏览器启动、扩展 UI、设置、命令或编辑器导航
+  做出相关改动后，可以告诉用户此技能可用，并简要说明它会验证什么。
+- 除非用户明确要求或同意该建议，否则不要运行 `qa:start`，不要打开或驱动浏览器或
+  VS Code 会话，也不要以其他方式开始此工作流。
+- 仅仅要求实现、修复、审查或测试代码，并不代表用户授权了交互式 QA。
+  常规单元测试、构建、lint 和确定性检查仍属于原始任务范围。
+- 如果用户没有授权交互式 QA，不要因此阻塞任务完成；在相关信息有用时说明它未运行即可。
 
-## Authorized Workflow
+获得授权后，先阅读仓库根目录的 `README.md`，了解当前 WebCode 设置和基本对话流程；
+然后在启动会话前阅读 [references/commands.md](references/commands.md)。对于发生改动的行为，
+只阅读 [references/charters.md](references/charters.md) 中相关的部分。所有浏览器和
+VS Code Workbench 操作还必须使用 `playwright-cli` 技能。
 
-1. Start an isolated session with `pnpm qa:start [site-id] [scenario-id]` and retain the run id.
-   Use `deepseek` when the user does not specify a site, and honor an explicitly requested built-in
-   or configured site. Prefer an agent-eval scenario when the model should work on a fixed,
-   verifiable coding task.
-2. Inspect `pnpm qa:ctl <run> status` and, when present, `pnpm qa:ctl <run> task`. Snapshot both
-   affected UI targets before acting. Send only the task text to the model; never send grader code.
-3. Exercise the changed flow interactively. Choose the next action from the current snapshot,
-   console, requests, Gateway trace, and Extension Host state rather than assuming a fixed page.
-4. Verify cross-surface effects twice when practical: visible UI through Playwright and internal
-   state through `qa:ctl` or `trace.jsonl`.
-5. Inspect `pnpm qa:ctl <run> review` and the resulting workspace before deciding whether the task
-   and product flow succeeded. A scenario grader is optional corroboration, not the final verdict.
-6. Save screenshots for important success and failure states. Record concise reproduction steps
-   and artifact paths for every bug.
-7. Always run `pnpm qa:stop <run>` when finished, including after a failed investigation.
+## 获得授权后的工作流
 
-Use the isolated run workspace for tool calls. Do not approve destructive, external, or unrelated
-operations merely to advance a test. If the target AI site is not logged in, pause and ask the user
-to log in manually in the visible isolated browser window. Do not enter credentials, solve CAPTCHA
-or 2FA, or bypass authentication; continue only after the signed-in state is visible. Browser-native
-prompts and high-risk approvals may also require the user to take over the visible session.
+1. 使用 `pnpm qa:start [site-id] [scenario-id]` 启动隔离会话，并保留运行 ID。
+   如果用户没有指定站点，则使用 `deepseek`；如果用户明确要求某个内置或已配置站点，
+   应遵从该选择。当模型需要处理固定且可验证的编码任务时，优先使用智能体评测场景。
+2. 检查 `pnpm qa:ctl <run> status`；如果存在任务，再检查
+   `pnpm qa:ctl <run> task`。执行操作前，为两个受影响的 UI 目标获取快照。
+   只向模型发送任务文本，绝不发送评分器代码。
+3. 以交互方式操作发生改动的流程。根据当前快照、控制台、请求、Gateway 追踪和
+   Extension Host 状态选择下一步，而不是假定页面固定不变。
+4. 在可行时从两个方面验证跨界面效果：通过 Playwright 验证可见 UI，
+   并通过 `qa:ctl` 或 `trace.jsonl` 验证内部状态。
+5. 判断任务和产品流程是否成功前，检查 `pnpm qa:ctl <run> review` 及其生成的工作区。
+   场景评分器只能作为可选的佐证，不能代替最终判断。
+6. 保存重要成功和失败状态的截图。为每个缺陷记录简洁的复现步骤和产物路径。
+7. 完成后始终运行 `pnpm qa:stop <run>`，调查失败时也不例外。
 
-Report task correctness, tool-use discipline, recovery behavior, UI clarity, and user friction.
-State which UI and internal evidence support the verdict and any coverage that remained blocked.
-Do not treat a started session, successful click, or deterministic grader pass as proof that the
-full product flow passed.
+使用隔离运行工作区执行工具调用。不要为了推进测试而批准破坏性、外部或无关的操作。
+如果目标 AI 站点尚未登录，暂停并请用户在可见的隔离浏览器窗口中手动登录。
+不要输入凭据、完成 CAPTCHA 或双重身份验证，也不要绕过身份验证；只有在登录状态可见后
+才能继续。浏览器原生提示和高风险审批也可能需要用户接管可见会话。
+
+报告任务正确性、工具使用规范、恢复行为、UI 清晰度和用户操作阻力。说明哪些 UI 和内部证据
+支持最终结论，以及哪些覆盖仍然受阻。不要把会话成功启动、点击成功或确定性评分器通过
+当作完整产品流程通过的证明。

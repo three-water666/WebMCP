@@ -1,69 +1,67 @@
-# WebCode Interactive QA Charters
+# WebCode 交互式 QA 测试章程
 
-Select the sections that match the change. Adapt exact actions to current site state.
+语言：中文 | [English](charters_en.md)
 
-## Baseline connection
+选择与改动相符的部分，并根据站点当前状态调整具体操作。
 
-- Confirm the real site and VS Code Workbench are both visible and Playwright snapshots succeed.
-- Confirm `qa:ctl status` reports the WebCode extension active and Gateway running on the run port.
-- Confirm the browser popup reports the expected bridge/session connection.
-- Check page errors, relevant console warnings, and unexpected failed requests before the flow.
+## 基线连接
 
-## Fixed coding scenario review
+- 确认真实站点和 VS Code Workbench 都可见，并且 Playwright 快照成功。
+- 确认 `qa:ctl status` 报告 WebCode 扩展处于活动状态，Gateway 正在本次运行的端口上运行。
+- 确认浏览器弹窗报告预期的桥接和会话连接。
+- 开始流程前检查页面错误、相关控制台警告和意外失败的请求。
 
-- Select a scenario whose fixture and required behavior overlap the feature under test; do not use
-  a harder task merely to make the run look more realistic.
-- Read the copied task with `qa:ctl task` and send only that prompt to the model.
-- Observe how the model discovers files, invokes tools, handles approval and result delivery, and
-  recovers from ambiguity. Intervene only as a tester would for login, risk review, or site failure.
-- Compare the final conversation, `qa:ctl review`, changed file contents, VS Code state, and any
-  scenario-specific tests. Use the hidden grader only as an additional correctness signal.
-- Give an agent-owned verdict across task correctness, tool discipline, recovery, UI clarity, and
-  friction. Attribute failures separately to model, site, bridge, Gateway, VS Code, or scenario.
+## 固定编码场景审查
 
-## Initialization and popup
+- 选择其夹具和必需行为与待测功能相符的场景；不要仅仅为了让运行显得更真实而使用更难的任务。
+- 使用 `qa:ctl task` 读取已复制的任务，并且只把该提示词发送给模型。
+- 观察模型如何发现文件、调用工具、处理审批和结果传递，以及如何从歧义中恢复。
+  只有在需要登录、风险审查或站点发生故障时，才像测试人员一样介入。
+- 比较最终对话、`qa:ctl review`、改动后的文件内容、VS Code 状态以及任何场景专用测试。
+  隐藏评分器只能用作额外的正确性信号。
+- 由智能体综合任务正确性、工具使用规范、恢复能力、UI 清晰度和操作阻力给出结论。
+  分别将故障归因于模型、站点、桥接、Gateway、VS Code 或场景。
 
-- On a fresh conversation, type an ordinary first message and press Enter.
-- Confirm interception opens the initialization prompt instead of losing or duplicating the text.
-- Click `Add`/`添加` or press Enter in the prompt. Confirm the initialization context is inserted
-  once, the original task remains present, and the message is not sent automatically.
-- Press Enter or click the site's send button again. Confirm exactly one user message is sent.
-- In a separate fresh conversation, cancel once and verify the draft remains usable.
-- Open the browser popup and invoke manual initialization.
-- Confirm the initialization context is inserted once and the original task can still be sent.
-- Reload and repeat the action that is expected to persist or reset.
+## 初始化与弹窗
 
-## Tool capture and activity status
+- 在新对话中输入一条普通的首条消息，然后按 Enter。
+- 确认拦截会打开初始化提示，而不会丢失或重复文本。
+- 在提示中点击 `Add`/`添加` 或按 Enter。确认初始化上下文只插入一次，原始任务仍然存在，
+  并且消息不会自动发送。
+- 再次按 Enter 或点击站点的发送按钮。确认只发送一条用户消息。
+- 在另一个新对话中取消一次，并验证草稿仍然可用。
+- 打开浏览器弹窗并调用手动初始化。
+- 确认初始化上下文只插入一次，并且原始任务仍可发送。
+- 重新加载，并重复预期应保持或重置状态的操作。
 
-- Send a safe task that produces at least one read-only tool call and, when relevant, a write call
-  confined to the isolated run workspace.
-- For network capture, inspect captured, queued, approval, executing, elapsed-time, result-delivery,
-  success, and failure states in the activity panel.
-- Expand the corresponding DOM tool block when available and verify the logical call executes once.
-- Compare browser state with Gateway `tool_call_started` and `tool_call_finished` trace events.
-- Confirm successful rows collapse as designed and failures remain inspectable.
+## 工具捕获与活动状态
 
-## Approval and result delivery
+- 发送一个安全任务，使其产生至少一次只读工具调用；如果相关，再产生一次仅限于隔离运行工作区
+  的写入调用。
+- 对于网络捕获，在活动面板中检查已捕获、已排队、等待审批、正在执行、已用时间、
+  结果传递、成功和失败状态。
+- 如果存在对应的 DOM 工具块，将其展开，并验证逻辑调用只执行一次。
+- 将浏览器状态与 Gateway 的 `tool_call_started` 和 `tool_call_finished` 追踪事件进行比较。
+- 确认成功行按设计折叠，而失败行仍可检查。
 
-- Verify read-only and mutating tools receive the intended approval treatment.
-- Reject one safe test request when the changed code affects rejection handling.
-- Confirm long-running execution remains visibly active and does not look frozen.
-- Confirm the result reaches the AI input, is sent once, and the conversation continues.
-- Reload during a non-destructive stage when recovery or deduplication behavior changed.
+## 审批与结果传递
 
-## VS Code UI, settings, and navigation
+- 验证只读工具和会修改状态的工具得到预期的审批处理。
+- 当改动后的代码会影响拒绝处理时，拒绝一个安全的测试请求。
+- 确认长时间运行的执行过程始终明显处于活动状态，看起来没有冻结。
+- 确认结果到达 AI 输入框、只发送一次，并且对话继续进行。
+- 当恢复或去重行为发生改动时，在非破坏性阶段重新加载。
 
-- Use Workbench Playwright to exercise the visible command, setting, status item, or extension UI.
-- Use Extension Host control to verify the resulting configuration, command effect, active editor,
-  file path, line, and column.
-- For browser-to-editor navigation, click in the browser, then verify both the Workbench screenshot
-  and `vscode state`.
-- Real enable/disable coverage requires an isolated profile with the packaged VSIX rather than only
-  an extension-development launch. Record this as separate coverage when the feature depends on
-  installation state.
+## VS Code UI、设置与导航
 
-## Failure reporting
+- 使用 Workbench Playwright 操作可见命令、设置、状态项或扩展 UI。
+- 使用 Extension Host 控制功能验证产生的配置、命令效果、活动编辑器、文件路径、行和列。
+- 对于从浏览器到编辑器的导航，先在浏览器中点击，再同时验证 Workbench 截图和
+  `vscode state`。
+- 真正的启用和禁用覆盖需要使用安装了已打包 VSIX 的隔离配置文件，不能只启动扩展开发模式。
+  当功能依赖安装状态时，将此项记录为单独的覆盖范围。
 
-Record the run id, site, exact observed state, shortest reproduction, expected behavior, relevant
-trace or log events, screenshots, and whether the failure belongs to site, bridge, Gateway, VS Code,
-or environment behavior.
+## 故障报告
+
+记录运行 ID、站点、观察到的确切状态、最短复现步骤、预期行为、相关追踪或日志事件、截图，
+以及故障属于站点、桥接、Gateway、VS Code 还是环境行为。

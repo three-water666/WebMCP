@@ -216,6 +216,26 @@ warning，便于修改提示后对比复测。
 
 运行产物保存在 `evals/runs/`，其中包含隔离工作区、`run.json` 和 `trace.jsonl`。该目录不会提交。
 
+## 人工主导的隔离测试环境
+
+只需要使用当前工作树中的最新扩展代码，并由人工完成全部操作时，可以启动独立的
+Extension Development Host：
+
+```bash
+pnpm qa:manual
+pnpm qa:manual "C:\path\to\workspace"
+```
+
+省略目录时会打开 `evals/fixtures/minimal-tool-loop/`。默认目录和显式指定的目录都会被直接打开，
+不会复制；测试期间产生的文件改动会写入对应目录。命令会构建最新的 VS Code 扩展和 browser
+bridge，并为本次窗口创建临时的 VS Code 用户数据和扩展目录，不读取或修改日常 VS Code 的设置
+及已安装插件。
+
+在 Extension Development Host 中手动启动 Gateway，再选择站点和浏览器模式。独立 Edge/Chrome
+模式使用 `evals/manual-browser-profiles/` 下的专用持久 profile，与日常浏览器数据分开并保留登录态。
+此命令不会启动 Playwright、QA 控制通道或自动测试。测试完成后手动关闭浏览器和 VS Code；VS Code
+关闭后，命令会清理本次临时用户数据。
+
 ## Agent 主导的交互式 QA
 
 交互式 QA 复用真实 Extension Host、Gateway、browser bridge、持久站点 Profile，以及
