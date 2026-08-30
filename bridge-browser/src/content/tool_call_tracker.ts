@@ -22,46 +22,22 @@ const STABILIZATION_TIMEOUT_MS = 3000;
 
 export class ToolCallTracker {
   private readonly blockStates = new WeakMap<Element, BlockState>();
+  private readonly domMessageScopes = new WeakMap<Element, string>();
   private readonly protocolErrorFeedbackRequests = new Set<string>();
+  private domMessageSequence = 0;
 
   public constructor(private readonly options: ToolCallTrackerOptions) {}
 
   public ensurePayloadRequestIdentity(
     payload: ParsedToolCallPayload,
     codeEl: HTMLElement,
-    messageIndex: number,
+    messageElement: Element,
     codeBlockIndex: number
   ): ToolRequestIdentity {
-    const explicitRequestId = normalizeRequestId(payload.request_id);
-    if (explicitRequestId) {
-      codeEl.dataset.mcpRequestId = explicitRequestId;
-      delete codeEl.dataset.mcpCallSignature;
-      delete codeEl.dataset.mcpCallScope;
-      payload.request_id = explicitRequestId;
-      return {
-        requestId: explicitRequestId,
-        requestKey: ensureElementRequestKey(codeEl, explicitRequestId, messageIndex, codeBlockIndex),
-      };
-    }
-
     const signature = buildToolCallSignature(payload);
-    const scope = getRequestScope(messageIndex, codeBlockIndex);
-    const cachedRequestId = codeEl.dataset.mcpRequestId;
-    const cachedSignature = codeEl.dataset.mcpCallSignature;
-    const cachedScope = codeEl.dataset.mcpCallScope;
-    const syntheticRequestId = cachedRequestId?.startsWith("req_auto_") &&
-      cachedSignature === signature &&
-      cachedScope === scope
-      ? cachedRequestId
-      : `req_auto_${messageIndex}_${codeBlockIndex}_${hashStableString(signature)}`;
-
-    codeEl.dataset.mcpRequestId = syntheticRequestId;
-    codeEl.dataset.mcpCallSignature = signature;
-    codeEl.dataset.mcpCallScope = scope;
-    payload.request_id = syntheticRequestId;
+    const scope = `${this.ensureDomMessageScope(messageElement)}:${codeBlockIndex}`;
     return {
-      requestId: syntheticRequestId,
-      requestKey: ensureElementRequestKey(codeEl, syntheticRequestId, messageIndex, codeBlockIndex),
+      requestKey: ensureElementRequestKey(codeEl, scope, signature),
     };
   }
 
@@ -71,13 +47,8 @@ export class ToolCallTracker {
     codeBlockIndex: number
   ): ToolRequestIdentity {
     const signature = buildToolCallSignature(payload);
-    const turnSignature = hashStableString(turnId);
-    const requestId = normalizeRequestId(payload.request_id) ??
-      `req_auto_network_${turnSignature}_${codeBlockIndex}_${hashStableString(signature)}`;
-    payload.request_id = requestId;
     return {
-      requestId,
-      requestKey: buildNetworkRequestKey(turnId, codeBlockIndex, requestId),
+      requestKey: buildNetworkRequestKey(turnId, codeBlockIndex, signature),
     };
   }
 
@@ -89,13 +60,14 @@ export class ToolCallTracker {
   public handleProtocolErrorBlock(
     codeEl: HTMLElement,
     textContent: string,
-    messageIndex: number,
+    messageElement: Element,
     codeBlockIndex: number,
     error: unknown
   ): ToolRequestIdentity {
     const now = Date.now();
     const state = this.blockStates.get(codeEl);
-    const identity = getProtocolErrorIdentity(textContent, codeEl, messageIndex, codeBlockIndex);
+    const scope = `${this.ensureDomMessageScope(messageElement)}:${codeBlockIndex}`;
+    const identity = getProtocolErrorIdentity(textContent, codeEl, scope);
 
     if (state?.text !== textContent) {
       this.blockStates.set(codeEl, {
@@ -130,11 +102,8 @@ export class ToolCallTracker {
     codeBlockIndex: number,
     error: unknown
   ): ToolRequestIdentity {
-    const requestId = extractRequestIdCandidate(textContent) ??
-      `req_invalid_network_${hashStableString(turnId)}_${codeBlockIndex}_${hashStableString(textContent)}`;
     const identity = {
-      requestId,
-      requestKey: buildNetworkRequestKey(turnId, codeBlockIndex, requestId),
+      requestKey: buildNetworkRequestKey(turnId, codeBlockIndex, `invalid:${textContent}`),
     };
     const message = buildProtocolErrorMessage(error);
     Logger.log(`Tool call protocol error: ${message}`, "error");
@@ -148,7 +117,10 @@ export class ToolCallTracker {
       !this.protocolErrorFeedbackRequests.has(identity.requestKey)
     ) {
       this.protocolErrorFeedbackRequests.add(identity.requestKey);
-      this.options.requestRegistry.saveToolResult(identity.requestKey, identity.requestId, message, true);
+      this.options.requestRegistry.saveToolResult(identity.requestKey, message, {
+        isError: true,
+        toolName: "invalid_tool_call",
+      });
     }
     return identity;
   }
@@ -167,7 +139,10 @@ export class ToolCallTracker {
       !this.protocolErrorFeedbackRequests.has(identity.requestKey)
     ) {
       this.protocolErrorFeedbackRequests.add(identity.requestKey);
-      this.options.requestRegistry.saveToolResult(identity.requestKey, identity.requestId, message, true);
+      this.options.requestRegistry.saveToolResult(identity.requestKey, message, {
+        isError: true,
+        toolName: "invalid_tool_call",
+      });
     }
   }
 
@@ -182,6 +157,15 @@ export class ToolCallTracker {
   private scheduleStabilizationCheck(): void {
     this.options.scheduleMainLoop(STABILIZATION_TIMEOUT_MS + 50);
   }
+
+  private ensureDomMessageScope(messageElement: Element): string {
+    const existing = this.domMessageScopes.get(messageElement);
+    if (existing) {return existing;}
+
+    const scope = `dom_message_${++this.domMessageSequence}`;
+    this.domMessageScopes.set(messageElement, scope);
+    return scope;
+  }
 }
 
 export function logToolSummary(payload: ToolExecutionPayload): void {
@@ -189,12 +173,6 @@ export function logToolSummary(payload: ToolExecutionPayload): void {
     ? payload.purpose.trim().replace(/\s+/g, " ")
     : (i18n.lang === "zh" ? "未提供 purpose" : "No purpose provided");
   Logger.log(`${payload.name} | purpose: ${purpose}`, "summary");
-}
-
-function normalizeRequestId(value: unknown): string | null {
-  if (typeof value !== "string") {return null;}
-  const trimmed = value.trim();
-  return trimmed || null;
 }
 
 function buildToolCallSignature(payload: ToolExecutionPayload): string {
@@ -247,14 +225,12 @@ function hashStableString(value: string): string {
 
 function ensureElementRequestKey(
   codeEl: HTMLElement,
-  requestId: string,
-  messageIndex: number,
-  codeBlockIndex: number
+  scope: string,
+  signature: string
 ): string {
   const seed = stableStringify({
-    codeBlockIndex,
-    messageIndex,
-    request_id: requestId,
+    scope,
+    signature,
   });
   const cachedRequestKey = codeEl.dataset.mcpRequestKey;
   const cachedRequestKeySeed = codeEl.dataset.mcpRequestKeySeed;
@@ -262,67 +238,30 @@ function ensureElementRequestKey(
     return cachedRequestKey;
   }
 
-  const requestKey = `req_key_${messageIndex}_${codeBlockIndex}_${hashStableString(seed)}`;
+  const requestKey = `call_${scope}_${hashStableString(seed)}`;
   codeEl.dataset.mcpRequestKey = requestKey;
   codeEl.dataset.mcpRequestKeySeed = seed;
   return requestKey;
 }
 
-function buildNetworkRequestKey(turnId: string, codeBlockIndex: number, requestId: string): string {
+function buildNetworkRequestKey(turnId: string, codeBlockIndex: number, signature: string): string {
   const seed = stableStringify({
     codeBlockIndex,
-    request_id: requestId,
+    signature,
     turnId,
   });
-  return `req_key_network_${hashStableString(seed)}`;
+  return `call_network_${hashStableString(seed)}`;
 }
 
 function getProtocolErrorIdentity(
   textContent: string,
   codeEl: HTMLElement,
-  messageIndex: number,
-  codeBlockIndex: number
+  scope: string
 ): ToolRequestIdentity {
-  const explicitRequestId = extractRequestIdCandidate(textContent);
-  if (explicitRequestId) {
-    codeEl.dataset.mcpRequestId = explicitRequestId;
-    return {
-      requestId: explicitRequestId,
-      requestKey: ensureElementRequestKey(codeEl, explicitRequestId, messageIndex, codeBlockIndex),
-    };
-  }
-
-  const cachedRequestId = codeEl.dataset.mcpRequestId;
   const textSignature = hashStableString(textContent);
-  const scope = getRequestScope(messageIndex, codeBlockIndex);
-  if (
-    cachedRequestId?.startsWith("req_invalid_") &&
-    codeEl.dataset.mcpInvalidSignature === textSignature &&
-    codeEl.dataset.mcpInvalidScope === scope
-  ) {
-    return {
-      requestId: cachedRequestId,
-      requestKey: ensureElementRequestKey(codeEl, cachedRequestId, messageIndex, codeBlockIndex),
-    };
-  }
-
-  const syntheticRequestId = `req_invalid_${messageIndex}_${codeBlockIndex}_${textSignature}`;
-  codeEl.dataset.mcpRequestId = syntheticRequestId;
-  codeEl.dataset.mcpInvalidSignature = textSignature;
-  codeEl.dataset.mcpInvalidScope = scope;
   return {
-    requestId: syntheticRequestId,
-    requestKey: ensureElementRequestKey(codeEl, syntheticRequestId, messageIndex, codeBlockIndex),
+    requestKey: ensureElementRequestKey(codeEl, scope, `invalid:${textSignature}`),
   };
-}
-
-function extractRequestIdCandidate(textContent: string): string | null {
-  const match = /["']request_id["']\s*:\s*["']([^"']+)["']/.exec(textContent);
-  return normalizeRequestId(match?.[1]);
-}
-
-function getRequestScope(messageIndex: number, codeBlockIndex: number): string {
-  return `${messageIndex}:${codeBlockIndex}`;
 }
 
 function buildProtocolErrorMessage(error: unknown): string {
@@ -333,8 +272,8 @@ function buildProtocolErrorMessage(error: unknown): string {
     ? "工具调用已被 webcode 拒绝，未请求 VS Code，也未执行任何工具。"
     : "The tool call was rejected by webcode before contacting VS Code. No tool was executed.";
   const nextStep = i18n.lang === "zh"
-    ? "请重新输出一个新的 JSON 工具调用代码块。顶层只能包含 mcp_action、name、purpose、arguments、request_id；name 和 purpose 必填。request_id 必须是本会话中每次工具调用的新值。当前工具有入参时，arguments 必须严格匹配该工具的 inputSchema。"
-    : "Regenerate a new JSON tool-call code block. Top-level fields may only be mcp_action, name, purpose, arguments, and request_id; name and purpose are required. request_id must be new for every tool call in this conversation. When the selected tool has inputs, arguments must exactly match that tool's inputSchema.";
+    ? "请重新输出一个新的 JSON 工具调用代码块。顶层只能包含 mcp_action、name、purpose、arguments；name 和 purpose 必填。当前工具有入参时，arguments 必须严格匹配该工具的 inputSchema。"
+    : "Regenerate a new JSON tool-call code block. Top-level fields may only be mcp_action, name, purpose, and arguments; name and purpose are required. When the selected tool has inputs, arguments must exactly match that tool's inputSchema.";
   const issueList = issues.map((issue) => `- ${issue}`).join("\n");
   const formatHint = getDefaultProtocolErrorHint();
   return `${intro}\n\nProblems:\n${issueList}\n\n${nextStep}\n\n${formatHint}`;
@@ -349,8 +288,7 @@ function getDefaultProtocolErrorHint(): string {
   "purpose": "Brief justification for this action",
   "arguments": {
     "key": "value"
-  },
-  "request_id": "turn_unique_step_1"
+  }
 }
 \`\`\`
 
@@ -359,8 +297,7 @@ Initialization tool format:
 {
   "mcp_action": "call",
   "name": "${PROTOCOL.initToolName}",
-  "purpose": "Initialize webcode for this conversation",
-  "request_id": "init_unique_1"
+  "purpose": "Initialize webcode for this conversation"
 }
 \`\`\``;
 }

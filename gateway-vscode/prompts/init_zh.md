@@ -7,7 +7,6 @@
 {
   "mcp_action": "call",
   "name": "{{INIT_TOOL_NAME}}",
-  "purpose": "初始化本次会话的 {{PRODUCT_NAME}}",
-  "request_id": "init_unique_1"
+  "purpose": "初始化本次会话的 {{PRODUCT_NAME}}"
 }
 ```

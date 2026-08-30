@@ -13,17 +13,15 @@
   "purpose": "执行此操作的简要原因",
   "arguments": {
     "key": "value"
-  },
-  "request_id": "turn_ab12_step_x"
+  }
 }
 ```
 
 ## 格式说明
 
-1. 顶层字段只能包含 `mcp_action`、`name`、`purpose`、`arguments`、`request_id`。
+1. 顶层字段只能包含 `mcp_action`、`name`、`purpose`、`arguments`。
 2. `mcp_action` 必须是 `"call"`；`name` 和 `purpose` 必填；如果所选工具有入参，`arguments` 必须严格匹配该工具的 `inputSchema`。
-3. 每一次工具调用都必须使用一个此前在本会话中从未出现过的新 `request_id`。不要在后续回复中复用任何旧值。
-4. 工具 `name` 必须和 {{PRODUCT_NAME}} Available Tools 工具列表中展示的一致。
+3. 工具 `name` 必须和 {{PRODUCT_NAME}} Available Tools 工具列表中展示的一致。
 
 ## 工具调用结果
 
@@ -32,7 +30,7 @@
 ```json
 {
   "mcp_action": "result",
-  "request_id": "turn_ab12_step_x",
+  "name": "工具名称",
   "status": "success",
   "output": "这里是文件内容或命令执行结果..."
 }
@@ -43,13 +41,15 @@
 ```json
 {
   "mcp_action": "result",
-  "request_id": "turn_ab12_step_x",
+  "name": "工具名称",
   "status": "error",
   "error": "这里是错误信息..."
 }
 ```
 
-如果工具返回错误，先根据错误修正工具调用或实现，不要编造成功结果。收到用户的下一次回复后，先确认上一轮发出的每个工具调用都有对应 `request_id` 的结果；如果缺少某个 `request_id`，可能是工具调用未被 {{PRODUCT_NAME}} 成功捕获。读取类工具缺少结果时需要重新调用；写入类工具或命令缺少结果时，先确认操作是否真的没有执行，如果没有执行，也需要重新调用。重新调用时必须更换新的 `request_id`。
+同一轮中的每个工具调用都会产生一个结果，结果顺序与工具调用顺序一致；`name` 表示结果来自哪个工具，但不作为唯一标识。如果缺少某个结果，该工具调用可能未被 {{PRODUCT_NAME}} 成功捕获。读取类工具缺少结果时需要重新调用；写入类工具或命令缺少结果时，先确认操作是否真的没有执行，如果没有执行，再重新调用。
+
+如果工具返回错误，先根据错误修正工具调用或实现，不要编造成功结果。
 
 ## 核心规则
 
@@ -64,8 +64,7 @@
   "purpose": "List all git tags sorted by version to determine the current version and next patch version.",
   "arguments": {
     "command": "git tag --list --sort=-v:refname"
-  },
-  "request_id": "turn_ab12_step_1"
+  }
 }
 ```
 
@@ -76,8 +75,7 @@
   "purpose": "Check git status to ensure there are no unrelated changes before starting release.",
   "arguments": {
     "command": "git status --short"
-  },
-  "request_id": "turn_ab12_step_2"
+  }
 }
 ```
 
@@ -91,8 +89,7 @@
     "purpose": "List all git tags sorted by version to determine the current version and next patch version.",
     "arguments": {
       "command": "git tag --list --sort=-v:refname"
-    },
-    "request_id": "turn_ab12_step_1"
+    }
   },
   {
     "mcp_action": "call",
@@ -100,8 +97,7 @@
     "purpose": "Check git status to ensure there are no unrelated changes before starting release.",
     "arguments": {
       "command": "git status --short"
-    },
-    "request_id": "turn_ab12_step_2"
+    }
   }
 ]
 ```

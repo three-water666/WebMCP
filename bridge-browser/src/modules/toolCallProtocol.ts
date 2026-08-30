@@ -6,6 +6,8 @@ export type ParsedToolCallPayload = ToolExecutionPayload & {
   purpose: string;
 };
 
+// request_id remains accepted only so conversations initialized by an older
+// webcode version can finish without a protocol error. It is discarded below.
 const ALLOWED_TOP_LEVEL_KEYS = new Set(["mcp_action", "name", "purpose", "arguments", "request_id"]);
 const TOOL_CALL_RE = /["'\u201C\u201D]?mcp_action["'\u201C\u201D]?\s*:\s*["'\u201C\u201D]?call["'\u201C\u201D]?/i;
 
@@ -38,7 +40,13 @@ export function parseToolCall(text: string): ParsedToolCallPayload {
     throw new ToolCallProtocolError(issues);
   }
 
-  return parsed as ParsedToolCallPayload;
+  const record = parsed as Record<string, unknown>;
+  return {
+    arguments: record.arguments as Record<string, unknown> | undefined,
+    mcp_action: "call",
+    name: record.name as string,
+    purpose: record.purpose as string,
+  };
 }
 
 function validateToolCallEnvelope(value: unknown): string[] {

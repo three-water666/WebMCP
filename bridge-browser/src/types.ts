@@ -3,11 +3,12 @@ import {
   type Session,
   type SiteNetworkCaptureConfig,
   type ToolExecutionPayload,
+  type ToolExecutionTransportPayload,
 } from '@webcode/shared';
 import { type SiteSelectors } from './modules/config';
 
 // Re-export shared types for convenience
-export type { Session, SiteNetworkCaptureConfig, ToolExecutionPayload };
+export type { Session, SiteNetworkCaptureConfig, ToolExecutionPayload, ToolExecutionTransportPayload };
 
 // === Extension-Internal Types ===
 
@@ -32,7 +33,7 @@ export interface MessageRequest {
   autoSend?: boolean;
   autoApproveTools?: boolean;
   defaultAutoApproveTools?: boolean;
-  payload?: ToolExecutionPayload;
+  payload?: ToolExecutionTransportPayload;
   approvalToken?: string;
   challengeId?: string;
 }

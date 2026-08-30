@@ -112,11 +112,12 @@ export class NetworkToolCallController {
     codeBlockIndex: number,
     generation: number
   ) {
+    const scopedTurnId = `${generation}:${turnId}`;
     try {
       const payload = parseToolCall(text);
       const identity = this.options.toolCallTracker.ensureNetworkPayloadRequestIdentity(
         payload,
-        `${generation}:${turnId}`,
+        scopedTurnId,
         codeBlockIndex
       );
       this.options.toolCallTracker.clearProtocolErrorFeedbackState(identity.requestKey);
@@ -136,7 +137,7 @@ export class NetworkToolCallController {
     } catch (error) {
       const identity = this.options.toolCallTracker.handleNetworkProtocolError(
         text,
-        turnId,
+        scopedTurnId,
         codeBlockIndex,
         error
       );

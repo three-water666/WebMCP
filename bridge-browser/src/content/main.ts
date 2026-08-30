@@ -320,7 +320,7 @@ function scheduleMainLoop(delayMs: number): void {
  *
  * 整体流程：
  * 1. 找到最新 AI 消息里的候选代码块。
- * 2. 解析工具调用协议，给调用生成稳定的模型 request_id 和内部 requestKey。
+ * 2. 解析工具调用协议，并根据当前消息作用域生成模型不可见的内部 requestKey。
  * 3. 新调用进入执行路径，已知调用只刷新视觉状态。
  * 4. 当前轮次所有工具都有结果后，按页面顺序合并结果并写回输入框。
  * 5. 如果 AI 还在输出、工具还没完成、或 JSON 还没稳定，则安排下一次检查。
@@ -339,7 +339,7 @@ function runMainLoop() {
   const latestCodeBlocks = UI.getLatestResponseCodeBlocks(DOM);
   if (!latestCodeBlocks) { return; }
 
-  const { messageElement, messageIndex, codeElements } = latestCodeBlocks;
+  const { messageElement, codeElements } = latestCodeBlocks;
   const skipNewCapturesForVirtualizedHistory = UI.isLikelyViewingVirtualizedHistory(DOM);
 
   // 当前轮次对象只记录本次扫描看到的 requestKey；去重、排序和已回填过滤由 registry 统一处理。
@@ -359,11 +359,11 @@ function runMainLoop() {
         UI.clearVisualState(codeElement);
       }
 
-      // requestKey 是跨扫描周期识别同一个工具调用的内部键。模型 request_id 只保留给 result 协议。
+      // requestKey 按消息元素和代码块生成，同一块重复扫描稳定，新会话中的相同调用也不会碰撞。
       const requestIdentity = toolCallTracker.ensurePayloadRequestIdentity(
         payload,
         codeElement,
-        messageIndex,
+        messageElement,
         codeBlockIndex
       );
       toolCallTracker.clearProtocolErrorFeedbackState(requestIdentity.requestKey);
@@ -412,7 +412,13 @@ function runMainLoop() {
       }
 
       // 流式输出中 JSON 可能暂时不完整。tracker 会先等待文本稳定，确认失败后才回填协议错误。
-      const requestIdentity = toolCallTracker.handleProtocolErrorBlock(codeElement, textContent, messageIndex, codeBlockIndex, error);
+      const requestIdentity = toolCallTracker.handleProtocolErrorBlock(
+        codeElement,
+        textContent,
+        messageElement,
+        codeBlockIndex,
+        error
+      );
       currentTurn.add(requestIdentity.requestKey);
     }
   }

@@ -1,1 +1,1 @@
-[系统提示] 请保持工具调用格式：{"mcp_action":"call", "name": "tool_name", "purpose": "原因", "arguments": {...}, "request_id": "turn_unique_step_x"}。request_id 必须是本会话中每次工具调用的新值。工具调用顶层字段只能包含 mcp_action、name、purpose、arguments、request_id。name 和 purpose 必填；如果工具有入参，arguments 必须严格匹配该工具的 inputSchema。
+[系统提示] 请保持工具调用格式：{"mcp_action":"call", "name": "tool_name", "purpose": "原因", "arguments": {...}}。工具调用顶层字段只能包含 mcp_action、name、purpose、arguments。name 和 purpose 必填；如果工具有入参，arguments 必须严格匹配该工具的 inputSchema。工具结果会按调用顺序返回。

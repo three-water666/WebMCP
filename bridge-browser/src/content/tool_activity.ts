@@ -22,7 +22,6 @@ export interface ToolActivityItem {
   detail?: string;
   message?: string;
   purpose?: string;
-  requestId: string;
   requestKey: string;
   startedAt?: number;
   status: ToolActivityStatus;
@@ -91,7 +90,6 @@ export class ToolActivityTracker {
     this.items.set(identity.requestKey, {
       detail: getPayloadDetail(payload),
       purpose: normalizeText(payload.purpose),
-      requestId: identity.requestId,
       requestKey: identity.requestKey,
       status: "captured",
       toolName: payload.name,
@@ -109,7 +107,6 @@ export class ToolActivityTracker {
     this.items.set(identity.requestKey, {
       completedAt: Date.now(),
       message,
-      requestId: identity.requestId,
       requestKey: identity.requestKey,
       status: "failed",
       toolName: "invalid_tool_call",

@@ -50,7 +50,7 @@ suite('ChatGPT event stream capture', () => {
         const decoder = new ChatGptEventStreamDecoder({ channels: ['commentary'] });
         const stream = buildCompletedStream([
             createMessageDelta('assistant-1', 'assistant', 'commentary', 'in_progress', ''),
-            createDelta('/message/content/parts/0', 'append', createToolCall('step-1')),
+            createDelta('/message/content/parts/0', 'append', createToolCall()),
             createStatusPatch('finished_successfully'),
             createDelta('', 'remove', null),
         ]);
@@ -67,7 +67,7 @@ suite('ChatGPT event stream capture', () => {
         decoder.push([
             'event: delta_encoding\n',
             'data: "v1"\n\n',
-            `data: ${createMessageDelta('assistant-1', 'assistant', 'commentary', 'in_progress', createToolCall('step-1'))}\n\n`,
+            `data: ${createMessageDelta('assistant-1', 'assistant', 'commentary', 'in_progress', createToolCall())}\n\n`,
         ].join(''));
 
         const result = decoder.finish();
@@ -77,7 +77,7 @@ suite('ChatGPT event stream capture', () => {
     });
 
     test('extracts fenced and bare tool call objects without collapsing duplicates', () => {
-        const call = createToolCall('same-id');
+        const call = createToolCall();
         assert.deepStrictEqual(extractToolCallTextCandidates(`${call}\n${call}`), [call, call]);
         assert.deepStrictEqual(extractToolCallTextCandidates(`before\n\`\`\`json\n${call}\n\`\`\``), [call]);
     });
@@ -131,13 +131,12 @@ function createStatusPatch(status: string): string {
     });
 }
 
-function createToolCall(requestId: string): string {
+function createToolCall(): string {
     return JSON.stringify({
         arguments: {},
         mcp_action: 'call',
         name: 'read_file',
         purpose: 'Read a file',
-        request_id: requestId,
     });
 }
 

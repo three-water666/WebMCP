@@ -1,6 +1,6 @@
 import { PROTOCOL } from '@webcode/shared';
 
-import { isRecord, type MessageRequest, type ToolExecutionPayload } from '../types';
+import { isRecord, type MessageRequest, type ToolExecutionTransportPayload } from '../types';
 import { formatGatewayToolResultData, parseGatewayToolResult } from '../modules/tool_result';
 import { getErrorMessage } from './errors';
 import { expireGatewaySession, recordGatewayActivity } from './session_health';
@@ -48,7 +48,7 @@ export async function executeTool(
       body: JSON.stringify({
         name: payload.name,
         arguments: payload.arguments ?? {},
-        request_id: payload.request_id,
+        internal_call_id: payload.internal_call_id,
         approval_token: request.approvalToken,
       }),
     });
@@ -88,7 +88,6 @@ export async function preflightTool(
       body: JSON.stringify({
         name: payload.name,
         arguments: payload.arguments ?? {},
-        request_id: payload.request_id,
       }),
     });
     await recordGatewayActivity(connection.tabId);
@@ -216,7 +215,7 @@ function isCommandRisk(value: unknown): value is NonNullable<ToolPreflightRespon
     && value.reasons.every((reason) => typeof reason === "string");
 }
 
-function getToolPayload(request: MessageRequest): ToolExecutionPayload | null {
+function getToolPayload(request: MessageRequest): ToolExecutionTransportPayload | null {
   return request.payload && typeof request.payload.name === "string" ? request.payload : null;
 }
 

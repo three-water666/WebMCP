@@ -24,10 +24,10 @@ async function main(): Promise<void> {
     assertEqual(page.actions[0], "paste", "attachment was not pasted first");
     assertEqual(page.actions[1], "wait:2000", "unacknowledged paste skipped the settle wait");
     assertEqual(page.actions[2], "write", "failure text was written before the attachment wait");
-    assert(page.input.innerText.includes('"request_id": "attachment-id"'), "attachment request ID was lost");
+    assert(page.input.innerText.includes('"name": "attach_file"'), "attachment tool name was lost");
     assert(page.input.innerText.includes('"status": "error"'), "unacknowledged paste was not reported");
     assert(page.input.innerText.includes("did not acknowledge"), "paste failure reason was not included");
-    assert(page.input.innerText.includes('"request_id": "text-id"'), "unrelated result was lost");
+    assert(page.input.innerText.includes('"name": "read_file"'), "unrelated result was lost");
     assert(page.input.innerText.includes('"output": "text result"'), "unrelated result was changed");
     assert(delivery.delivered, "attachment failure text did not remain sendable");
   });
@@ -44,8 +44,8 @@ async function main(): Promise<void> {
     assertEqual(page.pastedFileNames[1]?.join(","), "second.png", "second paste contained another group");
 
     const results = parseInputResults(page.input.innerText);
-    assertEqual(results.get("first-id")?.status, "success", "acknowledged group became an error");
-    assertEqual(results.get("second-id")?.status, "error", "unacknowledged group remained successful");
+    assertEqual(results[0]?.status, "success", "acknowledged group became an error");
+    assertEqual(results[1]?.status, "error", "unacknowledged group remained successful");
     assert(delivery.delivered, "partial attachment results were not sendable");
   });
 }
@@ -60,8 +60,8 @@ const SELECTORS: SiteSelectors = {
 
 function createBatch(): ToolResultDeliveryBatch {
   const outputParts = [
-    formatResult("attachment-id", "attachment prepared"),
-    formatResult("text-id", "text result"),
+    formatResult("attach_file", "attachment prepared"),
+    formatResult("read_file", "text result"),
   ];
   return {
     attachmentGroups: [{
@@ -72,7 +72,6 @@ function createBatch(): ToolResultDeliveryBatch {
         size: 8,
       }],
       outputIndex: 0,
-      requestId: "attachment-id",
       toolName: "attach_file",
     }],
     output: outputParts.join("\n\n"),
@@ -82,20 +81,20 @@ function createBatch(): ToolResultDeliveryBatch {
 
 function createMultiAttachmentBatch(): ToolResultDeliveryBatch {
   const outputParts = [
-    formatResult("first-id", "first attachment prepared"),
-    formatResult("second-id", "second attachment prepared"),
+    formatResult("attach_file", "first attachment prepared"),
+    formatResult("attach_file", "second attachment prepared"),
   ];
   return {
     attachmentGroups: [
-      createAttachmentGroup("first-id", "first.png", 0),
-      createAttachmentGroup("second-id", "second.png", 1),
+      createAttachmentGroup("first.png", 0),
+      createAttachmentGroup("second.png", 1),
     ],
     output: outputParts.join("\n\n"),
     outputParts,
   };
 }
 
-function createAttachmentGroup(requestId: string, name: string, outputIndex: number) {
+function createAttachmentGroup(name: string, outputIndex: number) {
   return {
     attachments: [{
       data: PNG_BASE64,
@@ -104,15 +103,14 @@ function createAttachmentGroup(requestId: string, name: string, outputIndex: num
       size: 8,
     }],
     outputIndex,
-    requestId,
     toolName: "attach_file",
   };
 }
 
-function formatResult(requestId: string, output: string): string {
+function formatResult(name: string, output: string): string {
   return `\`\`\`json\n${JSON.stringify({
     mcp_action: "result",
-    request_id: requestId,
+    name,
     status: "success",
     output,
   }, null, 2)}\n\`\`\``;
@@ -167,12 +165,12 @@ function installFakePage(acknowledgePaste: boolean | readonly boolean[]): FakePa
   return { actions, input, pastedFileNames };
 }
 
-function parseInputResults(value: string): Map<string, Record<string, unknown>> {
-  const results = new Map<string, Record<string, unknown>>();
+function parseInputResults(value: string): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
   for (const match of value.matchAll(/```json\n([\s\S]*?)\n```/g)) {
     const result = JSON.parse(match[1] ?? "{}") as Record<string, unknown>;
-    if (typeof result.request_id === "string") {
-      results.set(result.request_id, result);
+    if (typeof result.name === "string") {
+      results.push(result);
     }
   }
   return results;

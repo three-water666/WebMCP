@@ -13,6 +13,7 @@ export default defineConfig({
         "dom_tool_activity.test": resolve(__dirname, "test/dom_tool_activity.test.ts"),
         "network_capture_runtime.test": resolve(__dirname, "test/network_capture_runtime.test.ts"),
         "result_delivery.test": resolve(__dirname, "test/result_delivery.test.ts"),
+        "tool_call_tracker.test": resolve(__dirname, "test/tool_call_tracker.test.ts"),
         "tool_result.test": resolve(__dirname, "test/tool_result.test.ts"),
       },
       output: {

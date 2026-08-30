@@ -144,8 +144,7 @@ When calling a third-party tool, use the full name shown in Available Tools. Exa
   "mcp_action": "call",
   "name": "chrome-devtools:<toolName>",
   "purpose": "Use Chrome DevTools MCP for the browser task.",
-  "arguments": {},
-  "request_id": "turn_unique_step_1"
+  "arguments": {}
 }
 ```
 

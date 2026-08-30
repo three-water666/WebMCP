@@ -1,6 +1,6 @@
 import type express from 'express';
 import type { Response } from 'express';
-import { type ToolExecutionPayload } from '@webcode/shared';
+import { type ToolExecutionTransportPayload } from '@webcode/shared';
 
 import {
     formatToolArgumentValidationError,
@@ -33,7 +33,7 @@ type ParsedToolCallRequest = {
     approvalToken?: string;
     args: Record<string, unknown>;
     name: string;
-    requestId?: string;
+    internalCallId?: string;
 };
 
 const TRACE_EVIDENCE_ARGUMENTS = new Set(['path', 'customerId']);
@@ -49,7 +49,7 @@ export function createToolCallHandler(options: ToolCallHandlerOptions): express.
 
         options.trace?.({
             event: 'tool_call_received',
-            requestId: parsed.requestId,
+            requestId: parsed.internalCallId,
             toolName: parsed.name,
             status: 'started'
         });
@@ -141,7 +141,7 @@ function parseToolCallRequest(
     res: Response,
     options: ToolCallHandlerOptions
 ): ParsedToolCallRequest | null {
-    const payload = body as (Partial<ToolExecutionPayload> & { approval_token?: unknown }) | null;
+    const payload = body as (Partial<ToolExecutionTransportPayload> & { approval_token?: unknown }) | null;
 
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         sendToolError(res, 400, 'Invalid tool call request: request body must be a JSON object.');
@@ -170,9 +170,9 @@ function parseToolCallRequest(
         return null;
     }
 
-    const requestId = readOptionalString(payload.request_id);
+    const internalCallId = readOptionalString(payload.internal_call_id);
     const approvalToken = readOptionalString(payload.approval_token);
-    return { approvalToken, args: rawArgs, name, requestId };
+    return { approvalToken, args: rawArgs, internalCallId, name };
 }
 
 async function executeLocalTool(
@@ -193,7 +193,7 @@ async function executeLocalTool(
         options.log(`   🚀 Executing local tool: ${request.name} ${argsPreview}`);
         options.trace?.({
             event: 'tool_call_started',
-            requestId: request.requestId,
+            requestId: request.internalCallId,
             toolName: request.name,
             status: 'started',
             details: createTraceArgumentDetails(request.args)
@@ -203,7 +203,7 @@ async function executeLocalTool(
         options.log(`   ✅ Finished local tool: ${request.name} (${toolDuration}ms)`);
         options.trace?.({
             event: 'tool_call_finished',
-            requestId: request.requestId,
+            requestId: request.internalCallId,
             toolName: request.name,
             status: 'success',
             durationMs: toolDuration
@@ -213,7 +213,7 @@ async function executeLocalTool(
         options.error(`Local tool execution failed: ${request.name}`, error);
         options.trace?.({
             event: 'tool_call_finished',
-            requestId: request.requestId,
+            requestId: request.internalCallId,
             toolName: request.name,
             status: 'error',
             durationMs: Date.now() - toolStart,
@@ -235,7 +235,7 @@ async function executeRemoteTool(
         options.log(`   🚀 Executing MCP tool: ${request.name} ${argsPreview}`);
         options.trace?.({
             event: 'tool_call_started',
-            requestId: request.requestId,
+            requestId: request.internalCallId,
             toolName: request.name,
             status: 'started',
             details: createTraceArgumentDetails(request.args)
@@ -245,7 +245,7 @@ async function executeRemoteTool(
         options.log(`   ✅ Finished: ${request.name} (${toolDuration}ms)`);
         options.trace?.({
             event: 'tool_call_finished',
-            requestId: request.requestId,
+            requestId: request.internalCallId,
             toolName: request.name,
             status: 'success',
             durationMs: toolDuration
@@ -255,7 +255,7 @@ async function executeRemoteTool(
         options.error(`Tool execution failed: ${request.name}`, error);
         options.trace?.({
             event: 'tool_call_finished',
-            requestId: request.requestId,
+            requestId: request.internalCallId,
             toolName: request.name,
             status: 'error',
             durationMs: Date.now() - toolStart,

@@ -151,18 +151,17 @@ async function testBufferedAttachments(): Promise<void> {
   registry.markSettled("request-key");
   registry.saveToolResult(
     "request-key",
-    "request-id",
     "attached",
-    false,
     { attachments: [attachment], toolName: "attach_file" }
   );
   const batch = registry.buildBufferedResultBatch(["request-key"]);
 
   assertEqual(batch.attachmentGroups.length, 1, "attachment request association was lost");
-  assertEqual(batch.attachmentGroups[0]?.requestId, "request-id", "attachment request ID changed");
+  assertEqual(batch.attachmentGroups[0]?.toolName, "attach_file", "attachment tool name changed");
   assertEqual(batch.attachmentGroups[0]?.outputIndex, 0, "attachment output index changed");
   assertEqual(batch.attachmentGroups[0]?.attachments[0]?.name, "sample.png", "buffered attachment changed");
-  assert(batch.output.includes('"request_id": "request-id"'), "tool result text was not formatted");
+  assert(batch.output.includes('"name": "attach_file"'), "tool result text was not formatted");
+  assert(!batch.output.includes("request_id"), "public request ID remained in the tool result");
 }
 
 async function testAttachmentFailureResult(): Promise<void> {
@@ -180,20 +179,18 @@ async function testAttachmentFailureResult(): Promise<void> {
   registry.markSettled("attachment-key");
   registry.saveToolResult(
     "attachment-key",
-    "duplicate-id",
     "attached",
-    false,
     { attachments: [attachment], toolName: "attach_file" }
   );
   registry.markRunning("text-key");
   registry.markSettled("text-key");
-  registry.saveToolResult("text-key", "duplicate-id", "text result", false, { toolName: "read_file" });
+  registry.saveToolResult("text-key", "text result", { toolName: "read_file" });
 
   const batch = registry.buildBufferedResultBatch(["attachment-key", "text-key"]);
   const failedParts = applyAttachmentDeliveryFailures(batch.outputParts, [{
     outputIndex: batch.attachmentGroups[0]?.outputIndex ?? -1,
     reason: "The page did not acknowledge the paste.",
-    requestId: batch.attachmentGroups[0]?.requestId ?? "",
+    toolName: batch.attachmentGroups[0]?.toolName ?? "attach_file",
   }]);
   const attachmentResult = parseJsonCodeBlock(failedParts[0] ?? "");
   const textResult = parseJsonCodeBlock(failedParts[1] ?? "");
@@ -201,18 +198,16 @@ async function testAttachmentFailureResult(): Promise<void> {
   assertEqual(attachmentResult.status, "error", "attachment result did not become an error");
   assertEqual(attachmentResult.error, "The page did not acknowledge the paste.", "failure reason changed");
   assert(!("output" in attachmentResult), "failed attachment result retained its success output");
+  assertEqual(attachmentResult.name, "attach_file", "failed attachment result lost its tool name");
   assertEqual(textResult.status, "success", "unrelated tool result changed status");
-  assertEqual(textResult.output, expectDuplicateContext("text result"), "unrelated tool output changed");
+  assertEqual(textResult.name, "read_file", "unrelated tool result lost its tool name");
+  assertEqual(textResult.output, "text result", "unrelated tool output changed");
 }
 
 function parseJsonCodeBlock(value: string): Record<string, unknown> {
   const match = /^```json\n([\s\S]*)\n```$/.exec(value);
   assert(match, "result is not a JSON code block");
   return JSON.parse(match[1]) as Record<string, unknown>;
-}
-
-function expectDuplicateContext(content: string): string {
-  return 'webcode note: duplicate request_id "duplicate-id" result 2/2 for tool "read_file".\n\n' + content;
 }
 
 function testPasteAcknowledgement(): void {
