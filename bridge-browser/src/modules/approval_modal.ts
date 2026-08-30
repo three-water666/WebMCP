@@ -10,6 +10,7 @@ import {
 } from "./command_approval";
 import { isElementVisible } from "./dom_helpers";
 import { t } from "./i18n";
+import { APPROVAL_MODAL_Z_INDEX } from "./overlay_layers";
 import {
   clearUserAttention,
   showUserAttentionNotification,
@@ -167,7 +168,7 @@ function createModalHost(): HTMLElement {
   const host = document.createElement("div");
   Object.assign(host.style, {
     position: "fixed",
-    zIndex: 999999,
+    zIndex: APPROVAL_MODAL_Z_INDEX,
     top: 0,
     left: 0,
     width: "0",
