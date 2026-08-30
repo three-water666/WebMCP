@@ -77,6 +77,11 @@ const I18N_MESSAGES: Record<string, { en: string; zh: string }> = {
   activity_minimize: { en: "Minimize", zh: "收起" },
   activity_expand: { en: "Expand", zh: "展开" },
   activity_close: { en: "Close", zh: "关闭" },
+  activity_history: { en: "History", zh: "历史" },
+  activity_show_history: { en: "Show history", zh: "显示历史" },
+  activity_hide_history: { en: "Hide history", zh: "隐藏历史" },
+  activity_no_history: { en: "No previous tool activity", zh: "暂无之前的工具活动" },
+  activity_drag: { en: "Drag tool activity window", zh: "拖动工具活动窗口" },
 
   hitl_title: { en: "Approval Required", zh: "请求执行工具" },
   label_tool: { en: "Tool Name", zh: "工具名称" },
