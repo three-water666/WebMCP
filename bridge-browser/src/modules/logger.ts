@@ -21,6 +21,7 @@ export const Logger = {
   filterButtons: new Map<LoggerFilterType, HTMLButtonElement>(),
   activeTypes: new Set<LoggerLogType>(["summary"]),
   isMinimized: false,
+  soundEnabled: false,
 
   init() {
     if (this.el) {return;}
@@ -291,7 +292,24 @@ export const Logger = {
     }
   },
 
+  setSoundEnabled(enabled: boolean) {
+    this.soundEnabled = enabled;
+  },
+
+  playLogSound(type: LoggerLogType) {
+    if (!this.soundEnabled || !isStandardLogType(type)) {return;}
+
+    try {
+      chrome.runtime.sendMessage({ type: "PLAY_LOG_SOUND", logType: type }, () => {
+        void chrome.runtime.lastError;
+      });
+    } catch {
+      // Logger may be reused outside an extension context during local testing.
+    }
+  },
+
   log(msg: string, type: LoggerLogType = "info") {
+    this.playLogSound(type);
     if (!this.el || this.el.style.display === "none") {return;}
     const line = document.createElement("div");
     line.className = "line";
@@ -319,3 +337,7 @@ export const Logger = {
     }
   },
 };
+
+function isStandardLogType(type: LoggerLogType): type is typeof STANDARD_LOG_TYPES[number] {
+  return STANDARD_LOG_TYPES.includes(type as typeof STANDARD_LOG_TYPES[number]);
+}

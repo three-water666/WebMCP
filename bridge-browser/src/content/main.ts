@@ -83,6 +83,8 @@ function handleRuntimeMessage(request: unknown, sendResponse: RuntimeSendRespons
     Logger.toggle(show);
     Logger.log("Logger Visible: " + show, "info");
   }
+  if (request.type === "SET_LOG_SOUND_ENABLED") {
+    Logger.setSoundEnabled(request.soundEnabled === true);
   if (request.type === "SET_AUTO_SEND") {
     CONFIG.autoSend = request.autoSend !== false;
     if (!CONFIG.autoSend) {
@@ -525,6 +527,7 @@ function startObserver() {
   // 2. Check initial status
   chrome.runtime.sendMessage({ type: "GET_STATUS" }, async (response: unknown) => {
     if (isStatusResponse(response) && response.connected) {
+      Logger.setSoundEnabled(response.soundEnabled === true);
       isClientConnected = true;
       if (typeof response.workspaceId === "string") {
         currentWorkspaceId = response.workspaceId;

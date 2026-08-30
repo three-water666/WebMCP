@@ -3,13 +3,18 @@ import { getErrorMessage } from './errors';
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 const PLAY_ATTENTION_SOUND = "PLAY_ATTENTION_SOUND";
 
+export type LogSoundType = "info" | "success" | "warn" | "error" | "action";
+
 let creatingOffscreenDocument: Promise<void> | null = null;
 
-export async function playAttentionSound(): Promise<{ success: boolean; error?: string }> {
+export async function playAttentionSound(
+  logType?: LogSoundType
+): Promise<{ success: boolean; error?: string }> {
   try {
     await ensureOffscreenDocument();
     const response: unknown = await chrome.runtime.sendMessage({
       type: PLAY_ATTENTION_SOUND,
+      logType,
     });
 
     if (isRecord(response) && response.success === false) {

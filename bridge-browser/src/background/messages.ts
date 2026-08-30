@@ -1,3 +1,6 @@
+import { isMessageRequest, type MessageRequest } from '../types';
+import { playAttentionSound, type LogSoundType } from './attention_sound';
+import { bindSession, handleHandshake } from './connection';
 import { isMessageRequest, type MessageRequest, type SessionDisconnectReason } from '../types';
 import { playAttentionSound } from './attention_sound';
 import { handleHandshake } from './connection';
@@ -45,6 +48,15 @@ function dispatchRuntimeMessage(
       return true;
     case "GET_STATUS":
       handleGetStatus(request, sender, sendResponse);
+      return true;
+    case "SET_LOG_VISIBLE":
+      handleSetLogVisible(request, currentTabId, sendResponse);
+      return true;
+    case "SET_LOG_SOUND_ENABLED":
+      handleSetLogSoundEnabled(request, currentTabId, sendResponse);
+      return true;
+    case "PLAY_LOG_SOUND":
+      respondAsync(playLogSound(request), sendResponse);
       return true;
     case "REQUEST_USER_ATTENTION":
       respondAsync(requestUserAttention(request, sender), sendResponse);
@@ -106,6 +118,19 @@ function handleGetStatus(
     return;
   }
 
+  respondAsync(
+    Promise.all([
+      getSession(targetTabId),
+      chrome.storage.sync.get(["logSoundEnabled"]) as Promise<Record<string, unknown>>,
+    ]).then(([session, syncItems]) => ({
+      connected: Boolean(session),
+      port: session?.port,
+      showLog: session?.showLog ?? false,
+      soundEnabled: syncItems.logSoundEnabled === true,
+      workspaceId: session?.workspaceId ?? 'global',
+    })),
+    sendResponse
+  );
   respondAsync(getStatusResponse(targetTabId), sendResponse);
 }
 
@@ -195,12 +220,23 @@ function handleSetLogVisible(
   );
 }
 
+function handleSetLogSoundEnabled(
 function handleSetAutoSend(
   request: MessageRequest,
   currentTabId: number | null | undefined,
   sendResponse: SendResponse
 ): void {
   const targetTabId = request.tabId ?? currentTabId;
+  const soundEnabled = request.soundEnabled === true;
+
+  respondAsync(
+    chrome.storage.sync.set({ logSoundEnabled: soundEnabled }).then(() => {
+      if (targetTabId) {
+        void chrome.tabs.sendMessage(targetTabId, {
+          type: "SET_LOG_SOUND_ENABLED",
+          soundEnabled,
+        }).catch(ignoreRuntimeError);
+      }
   if (!targetTabId) {
     sendResponse({ success: false, error: "Missing Tab ID" });
     return;
@@ -224,6 +260,23 @@ function handleSetAutoSend(
   );
 }
 
+async function playLogSound(request: MessageRequest): Promise<{ success: boolean; error?: string }> {
+  if (!isLogSoundType(request.logType)) {
+    return { success: false, error: "Unsupported log sound type." };
+  }
+
+  return playAttentionSound(request.logType);
+}
+
+function isLogSoundType(value: unknown): value is LogSoundType {
+  return value === "info" ||
+    value === "success" ||
+    value === "warn" ||
+    value === "error" ||
+    value === "action";
+}
+
+function handleConnectExisting(
 function handleSetAutoApproveTools(
   request: MessageRequest,
   currentTabId: number | null | undefined,
