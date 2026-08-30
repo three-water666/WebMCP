@@ -2,17 +2,28 @@ import { ToolActivityTracker } from "../src/content/tool_activity";
 
 type OverlayConstructor = new (tracker: ToolActivityTracker) => unknown;
 
-interface ScheduledTimeout {
-  callback: () => void;
-  cleared: boolean;
-  delay: number;
-  id: number;
+interface FakeRect {
+  height: number;
+  left: number;
+  top: number;
+  width: number;
+}
+
+interface FakeMouseEvent {
+  button: number;
+  clientX: number;
+  clientY: number;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+  target: FakeElement;
 }
 
 class FakeElement {
   public readonly children: FakeElement[] = [];
   public className = "";
   public onclick: (() => void) | null = null;
+  public onmousedown: ((event: FakeMouseEvent) => void) | null = null;
+  public parentElement: FakeElement | null = null;
   public scrollTop = 0;
   public shadowRoot: FakeElement | null = null;
   public readonly style: Record<string, string> = {};
@@ -20,18 +31,22 @@ class FakeElement {
   public title = "";
   public type = "";
   private readonly attributes = new Map<string, string>();
+  private rect: FakeRect = { height: 0, left: 0, top: 0, width: 0 };
+
+  public constructor(private readonly tagName = "div") {}
 
   public append(...children: FakeElement[]): void {
-    this.children.push(...children);
+    children.forEach((child) => this.appendChild(child));
   }
 
   public appendChild(child: FakeElement): FakeElement {
+    child.parentElement = this;
     this.children.push(child);
     return child;
   }
 
   public attachShadow(): FakeElement {
-    this.shadowRoot = new FakeElement();
+    this.shadowRoot = new FakeElement("shadow-root");
     return this.shadowRoot;
   }
 
@@ -39,12 +54,35 @@ class FakeElement {
     this.onclick?.();
   }
 
-  public getAttribute(name: string): string | null {
-    return this.attributes.get(name) ?? null;
+  public closest(selector: string): FakeElement | null {
+    if (selector === "button" && this.tagName === "button") {return this;}
+    return this.parentElement?.closest(selector) ?? null;
+  }
+
+  public getBoundingClientRect(): DOMRect {
+    const width = this.rect.width;
+    const height = this.rect.height;
+    const left = parsePixels(this.style.left) ?? this.getRightAnchoredLeft(width) ?? this.rect.left;
+    const top = parsePixels(this.style.top) ?? this.getBottomAnchoredTop(height) ?? this.rect.top;
+    return {
+      bottom: top + height,
+      height,
+      left,
+      right: left + width,
+      top,
+      width,
+      x: left,
+      y: top,
+      toJSON: () => ({}),
+    };
   }
 
   public getText(): string {
     return `${this.textContent}${this.children.map((child) => child.getText()).join("")}`;
+  }
+
+  public mouseDown(event: FakeMouseEvent): void {
+    this.onmousedown?.(event);
   }
 
   public querySelector<T>(selector: string): T | null {
@@ -54,11 +92,15 @@ class FakeElement {
 
   public replaceChildren(...children: FakeElement[]): void {
     this.children.length = 0;
-    this.children.push(...children);
+    this.append(...children);
   }
 
   public setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
+  }
+
+  public setRect(rect: FakeRect): void {
+    this.rect = rect;
   }
 
   private findByClass(className: string): FakeElement | null {
@@ -69,13 +111,23 @@ class FakeElement {
     }
     return null;
   }
+
+  private getBottomAnchoredTop(height: number): number | null {
+    const bottom = parsePixels(this.style.bottom);
+    return bottom === null ? null : fakeWindow.innerHeight - bottom - height;
+  }
+
+  private getRightAnchoredLeft(width: number): number | null {
+    const right = parsePixels(this.style.right);
+    return right === null ? null : fakeWindow.innerWidth - right - width;
+  }
 }
 
 class FakeDocument {
-  public readonly body = new FakeElement();
+  public readonly body = new FakeElement("body");
 
-  public createElement(): FakeElement {
-    return new FakeElement();
+  public createElement(tagName: string): FakeElement {
+    return new FakeElement(tagName);
   }
 
   public reset(): void {
@@ -83,149 +135,145 @@ class FakeDocument {
   }
 }
 
-class FakeTimers {
-  private nextId = 1;
-  private readonly scheduled: ScheduledTimeout[] = [];
+class FakeWindow {
+  public innerHeight = 700;
+  public innerWidth = 1000;
+  private animationFrameId = 1;
+  private readonly animationFrames = new Map<number, () => void>();
+  private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
-  public getActiveTimeouts(): ScheduledTimeout[] {
-    return this.scheduled.filter((timeout) => !timeout.cleared);
+  public addEventListener(type: string, listener: unknown): void {
+    if (typeof listener !== "function") {return;}
+    const listeners = this.listeners.get(type) ?? new Set<(event: unknown) => void>();
+    listeners.add(listener as (event: unknown) => void);
+    this.listeners.set(type, listeners);
   }
 
-  public install(): () => void {
-    const timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout");
-    const clearTimeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, "clearTimeout");
-    const intervalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setInterval");
-    const clearIntervalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "clearInterval");
+  public dispatch(type: string, event: unknown): void {
+    this.listeners.get(type)?.forEach((listener) => listener(event));
+  }
 
-    Object.defineProperty(globalThis, "setTimeout", {
-      configurable: true,
-      value: (callback: unknown, delay = 0) => this.schedule(callback, delay),
-    });
-    Object.defineProperty(globalThis, "clearTimeout", {
-      configurable: true,
-      value: (id: unknown) => this.clear(id),
-    });
-    Object.defineProperty(globalThis, "setInterval", {
-      configurable: true,
-      value: () => this.nextId++,
-    });
-    Object.defineProperty(globalThis, "clearInterval", {
-      configurable: true,
-      value: () => undefined,
-    });
+  public flushAnimationFrames(): void {
+    const callbacks = Array.from(this.animationFrames.values());
+    this.animationFrames.clear();
+    callbacks.forEach((callback) => callback());
+  }
 
-    return () => {
-      restoreProperty("setTimeout", timeoutDescriptor);
-      restoreProperty("clearTimeout", clearTimeoutDescriptor);
-      restoreProperty("setInterval", intervalDescriptor);
-      restoreProperty("clearInterval", clearIntervalDescriptor);
-    };
+  public queueAnimationFrame(callback: () => void): number {
+    const id = this.animationFrameId++;
+    this.animationFrames.set(id, callback);
+    return id;
   }
 
   public reset(): void {
-    this.scheduled.length = 0;
-  }
-
-  public runActiveTimeout(): void {
-    const timeout = this.getActiveTimeouts()[0];
-    assert(timeout, "expected an active timeout");
-    timeout.cleared = true;
-    timeout.callback();
-  }
-
-  private schedule(callback: unknown, delay: number): number {
-    assert(typeof callback === "function", "timer callback was not callable");
-    const timeout = { callback: callback as () => void, cleared: false, delay, id: this.nextId++ };
-    this.scheduled.push(timeout);
-    return timeout.id;
-  }
-
-  private clear(id: unknown): void {
-    if (typeof id !== "number") {return;}
-    const timeout = this.scheduled.find((candidate) => candidate.id === id);
-    if (timeout) {timeout.cleared = true;}
+    this.innerHeight = 700;
+    this.innerWidth = 1000;
+    this.animationFrames.clear();
+    this.listeners.clear();
   }
 }
 
 const fakeDocument = new FakeDocument();
-const fakeTimers = new FakeTimers();
+const fakeWindow = new FakeWindow();
+let scheduledTimeoutCount = 0;
 
 async function main(): Promise<void> {
   installBrowserGlobals();
-  const restoreTimers = fakeTimers.install();
-  try {
-    const { ToolActivityOverlay } = await import("../src/content/tool_activity_overlay");
-    runTest("history keeps current activity live without losing reading state", () => {
-      testHistoryLiveUpdates(ToolActivityOverlay);
-    });
-    runTest("a new turn keeps history open and moves the prior turn down", () => {
-      testNewTurnKeepsHistoryOpen(ToolActivityOverlay);
-    });
-  } finally {
-    restoreTimers();
-  }
+  const { ToolActivityOverlay } = await import("../src/content/tool_activity_overlay");
+  runTest("history opens as a separate detailed block and keeps current status live", () => {
+    testDetailedHistoryBlock(ToolActivityOverlay);
+  });
+  runTest("a new turn stays current while the prior turn enters detailed history", () => {
+    testNewTurnUpdatesHistory(ToolActivityOverlay);
+  });
+  runTest("dragging moves the activity stack without losing viewport access", () => {
+    testUnifiedBoundedDragging(ToolActivityOverlay);
+  });
 }
 
-function testHistoryLiveUpdates(Overlay: OverlayConstructor): void {
+function testDetailedHistoryBlock(Overlay: OverlayConstructor): void {
   const harness = createHarness(Overlay);
   const firstKey = captureTurn(harness.tracker, "turn-1", "read_file");
   settleTurn(harness.tracker, firstKey);
   const currentKey = captureTurn(harness.tracker, "turn-2", "execute_command");
   harness.tracker.updateStatus({ requestKey: currentKey }, "executing");
 
-  clickTab(harness.panel, 1);
-  assert(harness.panel.querySelector<FakeElement>(".history-view"), "history view did not open");
-  assertIncludes(getRequired(harness.panel, ".current-turn").getText(), "Running", "current status was missing");
+  assert(!harness.stack.querySelector<FakeElement>(".tabs"), "legacy current/history tabs remain");
+  getRequired(harness.panel, ".history-button").click();
+  const historyPanel = getRequired(harness.stack, ".history-panel");
+  assertEqual(harness.stack.children[0], historyPanel, "history block was not placed above current activity");
+  assertEqual(harness.stack.children[1], harness.panel, "current block moved outside the shared stack");
+  assertIncludes(historyPanel.getText(), "read_file", "history omitted detailed tool data");
+  assertIncludes(historyPanel.getText(), "Run read_file", "history omitted the tool purpose");
+  assertIncludes(harness.panel.getText(), "Running", "current status was not kept visible");
 
-  getRequired(harness.panel, ".history-list").querySelector<FakeElement>(".turn-summary")?.click();
-  const historyBeforeUpdate = getRequired(harness.panel, ".history-list");
+  const historyBeforeUpdate = getRequired(harness.stack, ".history-list");
   historyBeforeUpdate.scrollTop = 41;
-  assert(historyBeforeUpdate.querySelector<FakeElement>(".turn-details"), "history turn did not expand");
-
   harness.tracker.updateStatus({ requestKey: currentKey }, "awaiting_approval");
-  const historyAfterUpdate = getRequired(harness.panel, ".history-list");
-  assertEqual(historyAfterUpdate.scrollTop, 41, "live update reset the history scroll position");
-  assert(historyAfterUpdate.querySelector<FakeElement>(".turn-details"), "live update collapsed the history turn");
-  assertIncludes(getRequired(harness.panel, ".current-turn").getText(), "Approval", "approval state did not update");
+  assertEqual(getRequired(harness.stack, ".history-list").scrollTop, 41, "live update reset history scroll");
+  assertIncludes(harness.panel.getText(), "Approval", "current approval state did not update");
 
   settleTurn(harness.tracker, currentKey);
-  assertEqual(fakeTimers.getActiveTimeouts().length, 0, "history view scheduled auto-collapse");
-  clickTab(harness.panel, 0);
-  const activeTimeouts = fakeTimers.getActiveTimeouts();
-  assertEqual(activeTimeouts.length, 1, "current view did not resume auto-collapse");
-  assertEqual(activeTimeouts[0]?.delay, 4000, "current view used the wrong collapse delay");
-  fakeTimers.runActiveTimeout();
-  assertEqual(harness.panel.className, "panel collapsed", "successful current view did not collapse");
+  assertEqual(scheduledTimeoutCount, 0, "successful activity scheduled automatic collapse");
+  assertEqual(harness.panel.className, "panel", "successful activity still collapsed automatically");
+  assert(harness.stack.querySelector<FakeElement>(".history-panel"), "completion hid the history block");
 }
 
-function testNewTurnKeepsHistoryOpen(Overlay: OverlayConstructor): void {
+function testNewTurnUpdatesHistory(Overlay: OverlayConstructor): void {
   const harness = createHarness(Overlay);
   captureTurn(harness.tracker, "turn-1", "read_file");
-  clickTab(harness.panel, 1);
+  getRequired(harness.panel, ".history-button").click();
+  assertIncludes(getRequired(harness.stack, ".history-list").getText(), "No previous", "empty history state was missing");
 
   captureTurn(harness.tracker, "turn-2", "write_file");
-  assert(harness.panel.querySelector<FakeElement>(".history-view"), "new turn switched away from history");
-  getRequired(harness.panel, ".current-turn").querySelector<FakeElement>(".turn-summary")?.click();
-  assertIncludes(getRequired(harness.panel, ".current-turn").getText(), "write_file", "new turn was not pinned");
+  assertIncludes(harness.panel.getText(), "write_file", "new tool call was not shown as current");
+  assertIncludes(getRequired(harness.stack, ".history-list").getText(), "read_file", "prior tool call did not enter history");
+  assertIncludes(getRequired(harness.panel, ".history-button").getText(), "(1)", "history count did not update");
+}
 
-  const history = getRequired(harness.panel, ".history-list");
-  history.querySelector<FakeElement>(".turn-summary")?.click();
-  assertIncludes(getRequired(harness.panel, ".history-list").getText(), "read_file", "prior turn was not moved to history");
-  assertIncludes(getTab(harness.panel, 1).getText(), "(2)", "history tab count did not update");
+function testUnifiedBoundedDragging(Overlay: OverlayConstructor): void {
+  const harness = createHarness(Overlay);
+  captureTurn(harness.tracker, "turn-1", "read_file");
+  const header = getRequired(harness.panel, ".drag-header");
+  header.mouseDown(createMouseEvent(620, 420, header));
+  fakeWindow.dispatch("mousemove", createMouseEvent(-1000, -1000, header));
+  fakeWindow.dispatch("mouseup", createMouseEvent(-1000, -1000, header));
+  assertEqual(harness.host.style.left, "8px", "drag escaped the left viewport edge");
+  assertEqual(harness.host.getBoundingClientRect().top, 8, "drag escaped the top viewport edge");
+
+  harness.host.setRect({ height: 500, left: 0, top: 0, width: 380 });
+  getRequired(harness.panel, ".history-button").click();
+  fakeWindow.flushAnimationFrames();
+  assertEqual(harness.host.getBoundingClientRect().top, 8, "opening history moved the stack out of view");
+  assertEqual(fakeDocument.body.children.length, 1, "history and current activity used separate hosts");
+
+  fakeWindow.innerHeight = 400;
+  fakeWindow.innerWidth = 500;
+  harness.host.setRect({ height: 360, left: 0, top: 0, width: 380 });
+  fakeWindow.dispatch("resize", {});
+  fakeWindow.flushAnimationFrames();
+  const resizedRect = harness.host.getBoundingClientRect();
+  assert(resizedRect.left >= 8 && resizedRect.right <= 492, "resize left the stack outside horizontal bounds");
+  assert(resizedRect.top >= 8 && resizedRect.bottom <= 392, "resize left the stack outside vertical bounds");
 }
 
 function createHarness(Overlay: OverlayConstructor): {
+  host: FakeElement;
   panel: FakeElement;
+  stack: FakeElement;
   tracker: ToolActivityTracker;
 } {
   fakeDocument.reset();
-  fakeTimers.reset();
+  fakeWindow.reset();
+  scheduledTimeoutCount = 0;
   const tracker = new ToolActivityTracker();
   new Overlay(tracker);
   const host = fakeDocument.body.children.at(-1);
-  const panel = host?.shadowRoot?.querySelector<FakeElement>(".panel");
-  assert(panel, "tool activity panel was not created");
-  return { panel, tracker };
+  const stack = host?.shadowRoot?.querySelector<FakeElement>(".overlay-stack");
+  const panel = stack?.querySelector<FakeElement>(".panel");
+  assert(host && stack && panel, "tool activity overlay was not created");
+  host.setRect({ height: 250, left: 600, top: 400, width: 380 });
+  return { host, panel, stack, tracker };
 }
 
 function captureTurn(tracker: ToolActivityTracker, turnId: string, toolName: string): string {
@@ -243,15 +291,15 @@ function settleTurn(tracker: ToolActivityTracker, requestKey: string): void {
   tracker.updateDelivery([requestKey], "delivered");
 }
 
-function clickTab(panel: FakeElement, index: number): void {
-  getTab(panel, index).click();
-}
-
-function getTab(panel: FakeElement, index: number): FakeElement {
-  const tabs = getRequired(panel, ".tabs");
-  const tab = tabs.children[index];
-  assert(tab, `missing activity tab ${index}`);
-  return tab;
+function createMouseEvent(clientX: number, clientY: number, target: FakeElement): FakeMouseEvent {
+  return {
+    button: 0,
+    clientX,
+    clientY,
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+    target,
+  };
 }
 
 function getRequired(root: FakeElement, selector: string): FakeElement {
@@ -262,18 +310,28 @@ function getRequired(root: FakeElement, selector: string): FakeElement {
 
 function installBrowserGlobals(): void {
   Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
-  Object.defineProperty(globalThis, "navigator", {
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { language: "en-US" } });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: fakeWindow });
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
     configurable: true,
-    value: { language: "en-US" },
+    value: (callback: () => void) => fakeWindow.queueAnimationFrame(callback),
   });
+  Object.defineProperty(globalThis, "setTimeout", {
+    configurable: true,
+    value: () => {
+      scheduledTimeoutCount += 1;
+      return scheduledTimeoutCount;
+    },
+  });
+  Object.defineProperty(globalThis, "clearTimeout", { configurable: true, value: () => undefined });
+  Object.defineProperty(globalThis, "setInterval", { configurable: true, value: () => 1 });
+  Object.defineProperty(globalThis, "clearInterval", { configurable: true, value: () => undefined });
 }
 
-function restoreProperty(name: string, descriptor: PropertyDescriptor | undefined): void {
-  if (descriptor) {
-    Object.defineProperty(globalThis, name, descriptor);
-  } else {
-    Reflect.deleteProperty(globalThis, name);
-  }
+function parsePixels(value: string | undefined): number | null {
+  if (!value || value === "auto") {return null;}
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function runTest(name: string, test: () => void): void {

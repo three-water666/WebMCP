@@ -80,10 +80,6 @@ export function isTurnSettled(turn: ToolActivityTurn): boolean {
   return turn.deliveryStatus === "delivered" || turn.deliveryStatus === "failed";
 }
 
-export function isSuccessfulDeliveredTurn(turn: ToolActivityTurn, items: ToolActivityItem[]): boolean {
-  return turn.deliveryStatus === "delivered" && items.every((item) => item.status === "succeeded");
-}
-
 export function formatTurnTime(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(timestamp);
 }

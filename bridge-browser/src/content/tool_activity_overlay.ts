@@ -6,6 +6,7 @@ import {
   type ToolActivityTracker,
   type ToolActivityTurn,
 } from "./tool_activity";
+import { FloatingPanelDragController } from "./floating_panel_drag";
 import { TOOL_ACTIVITY_STYLE_TEXT } from "./tool_activity_overlay_styles";
 import {
   formatTurnTime,
@@ -15,40 +16,36 @@ import {
   getTurnIcon,
   getTurnSummary,
   getTurnTone,
-  isSuccessfulDeliveredTurn,
   isTurnSettled,
   type ToolActivityTurnEntry,
 } from "./tool_activity_overlay_view";
 
-const SUCCESS_COLLAPSE_DELAY_MS = 4000;
 const ELAPSED_UPDATE_INTERVAL_MS = 1000;
 
-type ActivityViewMode = "current" | "history";
-
 export class ToolActivityOverlay {
-  private collapseTimer: ReturnType<typeof setTimeout> | null = null;
-  private collapseTimerTurnId: string | null = null;
   private collapsed = false;
   private currentTurnId: string | null = null;
   private dismissedTurnId: string | null = null;
-  private readonly expandedTurnIds = new Set<string>();
+  private readonly dragController: FloatingPanelDragController;
+  private historyVisible = false;
   private readonly host: HTMLDivElement;
   private latestSnapshot: ToolActivitySnapshot = { items: [], turns: [] };
   private readonly panel: HTMLDivElement;
+  private readonly stack: HTMLDivElement;
   private ticker: ReturnType<typeof setInterval> | null = null;
-  private viewMode: ActivityViewMode = "current";
 
   public constructor(tracker: ToolActivityTracker) {
     const view = createOverlayView();
     this.host = view.host;
     this.panel = view.panel;
+    this.stack = view.stack;
+    this.dragController = new FloatingPanelDragController(this.host);
     tracker.subscribe((snapshot) => this.render(snapshot));
   }
 
   private render(snapshot: ToolActivitySnapshot): void {
     this.latestSnapshot = snapshot;
     const entries = getActivityTurnEntries(snapshot);
-    this.pruneExpandedTurns(entries);
     const currentEntry = entries.at(-1);
     if (!currentEntry || this.dismissedTurnId === currentEntry.turn.id) {
       this.host.style.display = "none";
@@ -61,25 +58,33 @@ export class ToolActivityOverlay {
     }
 
     const historyScrollTop = this.getHistoryScrollTop();
+    const historyEntries = entries.slice(0, -1).reverse();
     this.host.style.display = "block";
+    this.host.className = this.collapsed && !this.historyVisible ? "current-collapsed" : "";
     this.panel.className = this.collapsed ? "panel collapsed" : "panel";
     this.panel.replaceChildren(
-      this.createHeader(currentEntry),
-      ...this.createExpandedContent(entries, currentEntry)
+      this.createCurrentHeader(currentEntry, historyEntries.length),
+      ...this.createCurrentDetails(currentEntry)
+    );
+    this.stack.replaceChildren(
+      ...(this.historyVisible ? [this.createHistoryPanel(historyEntries)] : []),
+      this.panel
     );
     this.restoreHistoryScrollTop(historyScrollTop);
     this.syncTicker(snapshot.items.some((item) => item.status === "executing"));
-    this.syncAutoCollapse(currentEntry);
+    this.dragController.scheduleClamp();
   }
 
-  private createHeader(entry: ToolActivityTurnEntry): HTMLElement {
+  private createCurrentHeader(entry: ToolActivityTurnEntry, historyCount: number): HTMLElement {
     const header = document.createElement("div");
-    header.className = "header";
+    header.className = "header drag-header";
+    header.title = t("activity_drag");
+    this.dragController.bindHandle(header);
 
     const identity = document.createElement("div");
     identity.className = "identity";
-    const mark = createTurnMark(entry.turn, entry.items);
     const heading = document.createElement("div");
+    heading.className = "heading";
     const title = document.createElement("div");
     title.className = "title";
     title.textContent = `${BRANDING.productName} · ${t("activity_title")}`;
@@ -87,11 +92,11 @@ export class ToolActivityOverlay {
     summary.className = "summary";
     summary.textContent = getTurnSummary(entry.turn, entry.items);
     heading.append(title, summary);
-    identity.append(mark, heading);
+    identity.append(createTurnMark(entry.turn, entry.items), heading);
 
     const actions = document.createElement("div");
     actions.className = "actions";
-    actions.appendChild(this.createToggleButton());
+    actions.append(this.createHistoryButton(historyCount), this.createToggleButton());
     if (isTurnSettled(entry.turn)) {
       actions.appendChild(this.createCloseButton(entry.turn.id));
     }
@@ -99,103 +104,65 @@ export class ToolActivityOverlay {
     return header;
   }
 
-  private createExpandedContent(
-    entries: ToolActivityTurnEntry[],
-    currentEntry: ToolActivityTurnEntry
-  ): HTMLElement[] {
+  private createCurrentDetails(entry: ToolActivityTurnEntry): HTMLElement[] {
     if (this.collapsed) {return [];}
-
-    const tabs = this.createViewTabs(entries.length);
-    if (this.viewMode === "history") {
-      return [tabs, this.createHistoryView(entries, currentEntry)];
-    }
-    return [tabs, ...createTurnDetails(currentEntry)];
+    return createTurnDetails(entry, "list");
   }
 
-  private createViewTabs(turnCount: number): HTMLElement {
-    const tabs = document.createElement("div");
-    tabs.className = "tabs";
-    tabs.setAttribute("role", "tablist");
-    tabs.append(
-      this.createViewTab("current", t("activity_current")),
-      this.createViewTab("history", `${t("activity_history")} (${turnCount})`)
-    );
-    return tabs;
-  }
-
-  private createViewTab(mode: ActivityViewMode, label: string): HTMLButtonElement {
+  private createHistoryButton(historyCount: number): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = this.viewMode === mode ? "view-tab active" : "view-tab";
-    button.textContent = label;
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-selected", String(this.viewMode === mode));
+    button.className = this.historyVisible ? "history-button active" : "history-button";
+    button.title = t(this.historyVisible ? "activity_hide_history" : "activity_show_history");
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", String(this.historyVisible));
+    button.textContent = `${t("activity_history")} (${historyCount})`;
     button.onclick = () => {
-      if (this.viewMode === mode) {return;}
-      this.clearCollapseTimer();
-      this.viewMode = mode;
+      this.historyVisible = !this.historyVisible;
       this.render(this.latestSnapshot);
     };
     return button;
   }
 
-  private createHistoryView(
-    entries: ToolActivityTurnEntry[],
-    currentEntry: ToolActivityTurnEntry
-  ): HTMLElement {
-    const view = document.createElement("div");
-    view.className = "history-view";
+  private createHistoryPanel(entries: ToolActivityTurnEntry[]): HTMLElement {
+    const panel = document.createElement("div");
+    panel.className = "history-panel";
 
-    const current = document.createElement("div");
-    current.className = "current-turn";
-    current.appendChild(this.createTurnCard(currentEntry, true));
+    const header = document.createElement("div");
+    header.className = "history-header drag-header";
+    header.title = t("activity_drag");
+    this.dragController.bindHandle(header);
+    const title = document.createElement("div");
+    title.className = "history-title";
+    title.textContent = `${t("activity_history")} · ${entries.length}`;
+    header.append(title, this.createHistoryCloseButton());
 
-    const label = document.createElement("div");
-    label.className = "history-label";
-    label.textContent = t("activity_previous_turns");
-
-    const history = document.createElement("div");
-    history.className = "history-list";
-    const previousEntries = entries.slice(0, -1).reverse();
-    if (previousEntries.length === 0) {
+    const list = document.createElement("div");
+    list.className = "history-list";
+    if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.className = "history-empty";
       empty.textContent = t("activity_no_history");
-      history.appendChild(empty);
+      list.appendChild(empty);
     } else {
-      previousEntries.forEach((entry) => history.appendChild(this.createTurnCard(entry, false)));
+      entries.forEach((entry) => list.appendChild(createHistoryTurn(entry)));
     }
-    view.append(current, label, history);
-    return view;
+    panel.append(header, list);
+    return panel;
   }
 
-  private createTurnCard(entry: ToolActivityTurnEntry, isCurrent: boolean): HTMLElement {
-    const expanded = this.expandedTurnIds.has(entry.turn.id);
-    const card = document.createElement("div");
-    card.className = isCurrent ? "turn-card current" : "turn-card";
-
-    const summary = document.createElement("button");
-    summary.type = "button";
-    summary.className = "turn-summary";
-    summary.setAttribute("aria-expanded", String(expanded));
-    summary.append(
-      createTurnMark(entry.turn, entry.items),
-      createTurnHeading(entry, isCurrent),
-      createChevron(expanded)
-    );
-    summary.onclick = () => {
-      if (expanded) {
-        this.expandedTurnIds.delete(entry.turn.id);
-      } else {
-        this.expandedTurnIds.add(entry.turn.id);
-      }
+  private createHistoryCloseButton(): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "icon-button close";
+    button.title = t("activity_hide_history");
+    button.setAttribute("aria-label", button.title);
+    button.textContent = "×";
+    button.onclick = () => {
+      this.historyVisible = false;
       this.render(this.latestSnapshot);
     };
-    card.appendChild(summary);
-    if (expanded) {
-      card.append(...createTurnDetails(entry, true));
-    }
-    return card;
+    return button;
   }
 
   private createToggleButton(): HTMLButtonElement {
@@ -228,25 +195,9 @@ export class ToolActivityOverlay {
   }
 
   private startTurn(turnId: string): void {
-    this.clearCollapseTimer();
     this.currentTurnId = turnId;
     this.dismissedTurnId = null;
     this.collapsed = false;
-  }
-
-  private syncAutoCollapse(entry: ToolActivityTurnEntry): void {
-    if (this.viewMode === "history" || !isSuccessfulDeliveredTurn(entry.turn, entry.items)) {
-      this.clearCollapseTimer();
-      return;
-    }
-    if (this.collapsed || this.collapseTimerTurnId === entry.turn.id) {return;}
-
-    this.collapseTimerTurnId = entry.turn.id;
-    this.collapseTimer = setTimeout(() => {
-      this.collapseTimer = null;
-      this.collapsed = true;
-      this.render(this.latestSnapshot);
-    }, SUCCESS_COLLAPSE_DELAY_MS);
   }
 
   private syncTicker(shouldRun: boolean): void {
@@ -259,48 +210,34 @@ export class ToolActivityOverlay {
   }
 
   private getHistoryScrollTop(): number {
-    if (this.viewMode !== "history") {return 0;}
-    return this.panel.querySelector<HTMLElement>(".history-list")?.scrollTop ?? 0;
+    if (!this.historyVisible) {return 0;}
+    return this.stack.querySelector<HTMLElement>(".history-list")?.scrollTop ?? 0;
   }
 
   private restoreHistoryScrollTop(scrollTop: number): void {
-    if (this.viewMode !== "history") {return;}
-    const history = this.panel.querySelector<HTMLElement>(".history-list");
+    if (!this.historyVisible) {return;}
+    const history = this.stack.querySelector<HTMLElement>(".history-list");
     if (history) {history.scrollTop = scrollTop;}
   }
-
-  private pruneExpandedTurns(entries: ToolActivityTurnEntry[]): void {
-    const retainedTurnIds = new Set(entries.map((entry) => entry.turn.id));
-    this.expandedTurnIds.forEach((turnId) => {
-      if (!retainedTurnIds.has(turnId)) {this.expandedTurnIds.delete(turnId);}
-    });
-  }
-
-  private clearCollapseTimer(): void {
-    if (this.collapseTimer) {clearTimeout(this.collapseTimer);}
-    this.collapseTimer = null;
-    this.collapseTimerTurnId = null;
-  }
 }
 
-function createTurnHeading(entry: ToolActivityTurnEntry, isCurrent: boolean): HTMLElement {
+function createHistoryTurn(entry: ToolActivityTurnEntry): HTMLElement {
+  const turn = document.createElement("section");
+  turn.className = "history-turn";
+  const header = document.createElement("div");
+  header.className = "history-turn-header";
   const heading = document.createElement("div");
   heading.className = "turn-heading";
-  const name = document.createElement("div");
-  name.className = "turn-name";
-  name.textContent = isCurrent ? t("activity_current_turn") : formatTurnTime(entry.turn.createdAt);
-  const meta = document.createElement("div");
-  meta.className = "turn-meta";
-  meta.textContent = getTurnSummary(entry.turn, entry.items);
-  heading.append(name, meta);
-  return heading;
-}
-
-function createChevron(expanded: boolean): HTMLElement {
-  const chevron = document.createElement("span");
-  chevron.className = "chevron";
-  chevron.textContent = expanded ? "⌄" : "›";
-  return chevron;
+  const time = document.createElement("div");
+  time.className = "turn-name";
+  time.textContent = formatTurnTime(entry.turn.createdAt);
+  const summary = document.createElement("div");
+  summary.className = "turn-meta";
+  summary.textContent = getTurnSummary(entry.turn, entry.items);
+  heading.append(time, summary);
+  header.append(createTurnMark(entry.turn, entry.items), heading);
+  turn.append(header, ...createTurnDetails(entry, "history-tool-list"));
+  return turn;
 }
 
 function createTurnMark(turn: ToolActivityTurn, items: ToolActivityItem[]): HTMLElement {
@@ -310,20 +247,15 @@ function createTurnMark(turn: ToolActivityTurn, items: ToolActivityItem[]): HTML
   return mark;
 }
 
-function createTurnDetails(entry: ToolActivityTurnEntry, nested = false): HTMLElement[] {
+function createTurnDetails(entry: ToolActivityTurnEntry, listClassName: string): HTMLElement[] {
   const list = document.createElement("div");
-  list.className = nested ? "turn-tool-list" : "list";
+  list.className = listClassName;
   entry.items.forEach((item) => list.appendChild(createActivityRow(item)));
 
   const footer = document.createElement("div");
   footer.className = `footer ${getTurnTone(entry.turn, entry.items)}`;
   footer.textContent = getDeliveryText(entry.turn, entry.items);
-  if (!nested) {return [list, footer];}
-
-  const details = document.createElement("div");
-  details.className = "turn-details";
-  details.append(list, footer);
-  return [details];
+  return [list, footer];
 }
 
 function createActivityRow(item: ToolActivityItem): HTMLElement {
@@ -362,15 +294,22 @@ function createTextLine(className: string, value: string): HTMLElement {
   return line;
 }
 
-function createOverlayView(): { host: HTMLDivElement; panel: HTMLDivElement } {
+function createOverlayView(): {
+  host: HTMLDivElement;
+  panel: HTMLDivElement;
+  stack: HTMLDivElement;
+} {
   const host = document.createElement("div");
   host.style.display = "none";
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = TOOL_ACTIVITY_STYLE_TEXT;
+  const stack = document.createElement("div");
+  stack.className = "overlay-stack";
   const panel = document.createElement("div");
   panel.className = "panel";
-  shadow.append(style, panel);
+  stack.appendChild(panel);
+  shadow.append(style, stack);
   document.body.appendChild(host);
-  return { host, panel };
+  return { host, panel, stack };
 }

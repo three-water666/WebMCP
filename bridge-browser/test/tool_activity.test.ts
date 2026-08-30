@@ -2,6 +2,7 @@ import {
   ToolActivityTracker,
   type ToolActivitySnapshot,
 } from "../src/content/tool_activity";
+import { clampFloatingPanelPosition } from "../src/content/floating_panel_drag";
 import {
   APPROVAL_MODAL_Z_INDEX,
   TOOL_ACTIVITY_OVERLAY_Z_INDEX,
@@ -10,6 +11,7 @@ import {
 function main(): void {
   runTest("activity history retains only the latest eight turns", testRetainsLatestEightTurns);
   runTest("approval UI stays above tool activity", testApprovalLayerPriority);
+  runTest("floating activity stays inside every viewport edge", testFloatingPanelBounds);
 }
 
 function testRetainsLatestEightTurns(): void {
@@ -37,6 +39,35 @@ function testApprovalLayerPriority(): void {
     APPROVAL_MODAL_Z_INDEX > TOOL_ACTIVITY_OVERLAY_Z_INDEX,
     "tool activity can cover the approval modal"
   );
+}
+
+function testFloatingPanelBounds(): void {
+  const panel = { height: 200, width: 300 };
+  const viewport = { height: 600, width: 800 };
+  assertPosition(
+    clampFloatingPanelPosition({ left: -100, top: -100 }, panel, viewport),
+    { left: 8, top: 8 },
+    "top-left position was not clamped"
+  );
+  assertPosition(
+    clampFloatingPanelPosition({ left: 900, top: 900 }, panel, viewport),
+    { left: 492, top: 392 },
+    "bottom-right position was not clamped"
+  );
+  assertPosition(
+    clampFloatingPanelPosition({ left: 100, top: 100 }, { height: 700, width: 900 }, viewport),
+    { left: 8, top: 8 },
+    "oversized panel did not leave its header reachable"
+  );
+}
+
+function assertPosition(
+  actual: { left: number; top: number },
+  expected: { left: number; top: number },
+  message: string
+): void {
+  assertEqual(actual.left, expected.left, `${message} (left)`);
+  assertEqual(actual.top, expected.top, `${message} (top)`);
 }
 
 function runTest(name: string, test: () => void): void {
