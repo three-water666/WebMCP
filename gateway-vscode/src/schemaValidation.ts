@@ -39,8 +39,7 @@ export function formatToolArgumentValidationError(toolName: string, schema: unkn
             mcp_action: 'call',
             name: toolName,
             purpose: 'Brief justification for this action',
-            arguments: {},
-            request_id: 'turn_unique_step_1'
+            arguments: {}
         }, null, 2),
         '```'
     ].join('\n');

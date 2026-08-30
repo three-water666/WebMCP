@@ -86,8 +86,15 @@ function normalizePromptSiteId(siteId: string | null | undefined): string {
 export interface ToolExecutionPayload {
   name: string;
   arguments?: Record<string, unknown>;
-  request_id?: string;
   purpose?: string;
+}
+
+/**
+ * Bridge -> Extension -> Gateway 的内部工具执行载荷。
+ * internal_call_id 由 bridge 生成，只用于跨层 trace，不属于模型可见协议。
+ */
+export interface ToolExecutionTransportPayload extends ToolExecutionPayload {
+  internal_call_id?: string;
 }
 
 /**
@@ -95,7 +102,7 @@ export interface ToolExecutionPayload {
  */
 export interface McpResponse {
   mcp_action: 'result';
-  request_id: string;
+  name: string;
   status: 'success' | 'error';
   output?: string;
   error?: string;

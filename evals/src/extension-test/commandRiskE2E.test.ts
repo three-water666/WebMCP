@@ -95,15 +95,11 @@ suite('Command risk approval E2E', () => {
 
         await waitFor(() => countFixtureEvents(fixtureSite?.events ?? [], 'tool_result_submitted') === 4);
         const trace = readEvalTrace(tracePath);
-        assertTraceContainsToolSuccess(trace, 'execute_command', 'eval_command_allowed_1');
-        assertTraceContainsToolSuccess(trace, 'execute_command', 'eval_command_confirm_2');
-        assertTraceContainsToolSuccess(trace, 'run_in_terminal', 'eval_terminal_confirm_3');
-        assert.ok(
-            !trace.some(event => (
-                event.source === 'gateway'
-                && event.event === 'tool_call_started'
-                && event.requestId === 'eval_command_blocked_4'
-            )),
+        assertTraceContainsToolSuccess(trace, 'execute_command', 2);
+        assertTraceContainsToolSuccess(trace, 'run_in_terminal', 1);
+        assert.strictEqual(
+            countGatewayToolEvents(trace, 'tool_call_started', 'execute_command'),
+            2,
             'The blocked command must never reach Gateway execution.'
         );
         assert.ok(
@@ -218,18 +214,26 @@ async function approveToolOnce(
 function assertTraceContainsToolSuccess(
     trace: ReturnType<typeof readEvalTrace>,
     toolName: string,
-    requestId: string
+    minimum: number
 ): void {
     assert.ok(
-        trace.some(event => (
-            event.source === 'gateway'
-            && event.event === 'tool_call_finished'
-            && event.toolName === toolName
-            && event.requestId === requestId
-            && event.status === 'success'
-        )),
-        `Trace should contain a successful ${toolName} event for ${requestId}.`
+        countGatewayToolEvents(trace, 'tool_call_finished', toolName, 'success') >= minimum,
+        `Trace should contain at least ${minimum} successful ${toolName} event(s).`
     );
+}
+
+function countGatewayToolEvents(
+    trace: ReturnType<typeof readEvalTrace>,
+    eventName: string,
+    toolName: string,
+    status?: 'started' | 'success' | 'error'
+): number {
+    return trace.filter(event => (
+        event.source === 'gateway'
+        && event.event === eventName
+        && event.toolName === toolName
+        && (status === undefined || event.status === status)
+    )).length;
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {

@@ -214,10 +214,8 @@ export class ToolExecutor {
     Logger.log(`${t("exec_fail")}: ${message}`, "error");
     this.options.requestRegistry.saveToolResult(
       request.identity.requestKey,
-      request.identity.requestId,
       message,
-      true,
-      { toolName: request.payload.name }
+      { isError: true, toolName: request.payload.name }
     );
     this.options.scheduleMainLoop(50);
   }
@@ -255,7 +253,14 @@ export class ToolExecutor {
     return new Promise((resolve, reject) => {
       try {
         chrome.runtime.sendMessage(
-          { type: "EXECUTE_TOOL", payload: request.payload, approvalToken },
+          {
+            type: "EXECUTE_TOOL",
+            payload: {
+              ...request.payload,
+              internal_call_id: request.identity.requestKey,
+            },
+            approvalToken,
+          },
           (response: unknown) => {
             this.options.requestRegistry.markSettled(request.identity.requestKey);
 
@@ -265,10 +270,8 @@ export class ToolExecutor {
               Logger.log(`${t("exec_fail")}: ${errorMessage}`, "error");
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
-                request.identity.requestId,
                 errorMessage,
-                true,
-                { toolName: request.payload.name }
+                { isError: true, toolName: request.payload.name }
               );
               this.options.scheduleMainLoop(50);
               resolve();
@@ -282,9 +285,7 @@ export class ToolExecutor {
               const output = formatSuccessfulResult(request.payload.name, result.data);
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
-                request.identity.requestId,
                 output.text,
-                false,
                 {
                   attachments: output.attachments,
                   toolName: request.payload.name,
@@ -299,10 +300,8 @@ export class ToolExecutor {
               Logger.log(`${t("exec_fail")}: ${result.error}`, "error");
               this.options.requestRegistry.saveToolResult(
                 request.identity.requestKey,
-                request.identity.requestId,
                 result.error ?? "Tool execution failed.",
-                true,
-                { toolName: request.payload.name }
+                { isError: true, toolName: request.payload.name }
               );
             }
 
@@ -333,10 +332,8 @@ export class ToolExecutor {
     Logger.log(`${t("exec_fail")}: ${message}`, "error");
     this.options.requestRegistry.saveToolResult(
       request.identity.requestKey,
-      request.identity.requestId,
       message,
-      true,
-      { toolName: request.payload.name }
+      { isError: true, toolName: request.payload.name }
     );
     this.options.scheduleMainLoop(50);
   }
@@ -372,10 +369,8 @@ export class ToolExecutor {
           Logger.log(`${t("hitl_rejected")}: ${request.payload.name}`, "error");
           this.options.requestRegistry.saveToolResult(
             request.identity.requestKey,
-            request.identity.requestId,
             `User rejected execution. Reason: ${reason || "No reason provided."}`,
-            true,
-            { toolName: request.payload.name }
+            { isError: true, toolName: request.payload.name }
           );
           this.options.scheduleMainLoop(50);
           resolve(false);

@@ -215,7 +215,7 @@ event.preventDefault();
 | --- | --- |
 | `function\\s+\\w+` | 匹配函数声明片段。 |
 | `search_(files|code)` | 匹配 `search_files` 或 `search_code`。 |
-| `\\brequest_id\\b` | 匹配完整词 `request_id`。 |
+| `\\btool_name\\b` | 匹配完整词 `tool_name`。 |
 
 注意：ripgrep 可用时使用 ripgrep 正则；ripgrep 不可用时 fallback 使用 JavaScript `RegExp`。两者在少数高级正则语法上可能不完全一致。
 

@@ -16,8 +16,7 @@ export interface ToolResultAttachment {
 export interface ToolResultAttachmentGroup {
   attachments: ToolResultAttachment[];
   outputIndex: number;
-  requestId: string;
-  toolName?: string;
+  toolName: string;
 }
 
 export interface ToolResultDeliveryBatch {
@@ -29,7 +28,7 @@ export interface ToolResultDeliveryBatch {
 export interface ToolResultAttachmentFailure {
   outputIndex: number;
   reason: string;
-  requestId: string;
+  toolName: string;
 }
 
 export interface ToolResultData {
@@ -118,14 +117,14 @@ export function applyAttachmentDeliveryFailures(
   return outputParts.map((output, outputIndex) => {
     const failure = failuresByOutput.get(outputIndex);
     return failure
-      ? replaceMcpResultWithAttachmentError(output, failure.requestId, failure.reason)
+      ? replaceMcpResultWithAttachmentError(output, failure.toolName, failure.reason)
       : output;
   });
 }
 
 function replaceMcpResultWithAttachmentError(
   output: string,
-  requestId: string,
+  toolName: string,
   reason: string
 ): string {
   const match = /^```json\r?\n([\s\S]*)\r?\n```$/.exec(output);
@@ -133,10 +132,10 @@ function replaceMcpResultWithAttachmentError(
     try {
       const response = JSON.parse(match[1]) as unknown;
       if (isRecord(response) &&
-        response.mcp_action === "result" &&
-        response.request_id === requestId) {
+        response.mcp_action === "result") {
         const errorResponse: Record<string, unknown> = {
           ...response,
+          name: typeof response.name === "string" ? response.name : toolName,
           status: "error",
         };
         delete errorResponse.output;
@@ -150,7 +149,7 @@ function replaceMcpResultWithAttachmentError(
 
   return formatJsonCodeBlock({
     mcp_action: "result",
-    request_id: requestId,
+    name: toolName,
     status: "error",
     error: reason,
   });

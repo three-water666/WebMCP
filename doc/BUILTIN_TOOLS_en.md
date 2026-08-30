@@ -18,7 +18,7 @@ Local tool `path` arguments consistently use workspace-relative paths with `/` s
 | Tool | Purpose |
 | --- | --- |
 | `read_file` | Reads UTF-8 text files inside the workspace, or read-only built-in Skill virtual files under `.webcode/builtin-skills/...`. Supports `head`, `tail`, `start_line`, `end_line`, and `show_line_numbers` for ranged reads and line numbers. |
-| `attach_file` | Pastes a UTF-8 TXT, PNG, JPEG, WebP, GIF, or PDF file of up to 20 MB from the workspace into the current AI conversation as a real attachment for a capable site and model to inspect. If the page does not acknowledge the paste, an attachment delivery error is returned under the original `request_id`. |
+| `attach_file` | Pastes a UTF-8 TXT, PNG, JPEG, WebP, GIF, or PDF file of up to 20 MB from the workspace into the current AI conversation as a real attachment for a capable site and model to inspect. If the page does not acknowledge the paste, an attachment delivery error is returned for `attach_file`. |
 | `write_file` | Creates or fully overwrites UTF-8 text files inside the workspace. |
 | `edit_file` | Applies exact text replacements or unified diff patches to text files inside the workspace. Use `dryRun` to return a diff preview. |
 | `search_files` | Searches files by filename or relative path using ripgrep file listing first, with substring and glob matching that is case-insensitive by default, and respects ignore files by default. |

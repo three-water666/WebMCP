@@ -57,7 +57,6 @@ export function buildCommandRiskFixturePage(expected: CommandRiskExpected): stri
         name: toolName,
         purpose,
         arguments: args,
-        request_id: requestId,
       }, null, 2);
       pre.appendChild(code);
       message.appendChild(pre);
@@ -101,6 +100,15 @@ export function buildCommandRiskFixturePage(expected: CommandRiskExpected): stri
       status.textContent = message;
     }
 
+    function currentRequestId() {
+      return [
+        'eval_command_allowed_1',
+        'eval_command_confirm_2',
+        'eval_terminal_confirm_3',
+        'eval_command_blocked_4',
+      ][stage];
+    }
+
     async function complete() {
       const finalMessage = document.createElement('article');
       finalMessage.className = 'assistant-message';
@@ -122,12 +130,13 @@ export function buildCommandRiskFixturePage(expected: CommandRiskExpected): stri
       await sendTrace({
         event: 'tool_result_submitted',
         status: result?.status === 'success' ? 'success' : 'error',
-        requestId: result?.request_id,
+        requestId: currentRequestId(),
+        toolName: result?.name,
         details: { contentLength: text.length, stage },
       });
       const output = String(result?.status === 'error' ? result?.error : (result?.output ?? ''));
 
-      if (stage === 0 && result?.request_id === 'eval_command_allowed_1' && result.status === 'success') {
+      if (stage === 0 && result?.name === 'execute_command' && result.status === 'success') {
         stage = 1;
         status.textContent = 'Allowed command completed; requesting inline evaluation.';
         renderToolCall(
@@ -139,7 +148,7 @@ export function buildCommandRiskFixturePage(expected: CommandRiskExpected): stri
         return;
       }
 
-      if (stage === 1 && result?.request_id === 'eval_command_confirm_2'
+      if (stage === 1 && result?.name === 'execute_command'
           && result.status === 'success' && output.includes(config.confirmationOutput)) {
         stage = 2;
         status.textContent = 'Background command approved; requesting terminal command.';
@@ -152,7 +161,7 @@ export function buildCommandRiskFixturePage(expected: CommandRiskExpected): stri
         return;
       }
 
-      if (stage === 2 && result?.request_id === 'eval_terminal_confirm_3'
+      if (stage === 2 && result?.name === 'run_in_terminal'
           && result.status === 'success' && output.includes('session_id')) {
         stage = 3;
         status.textContent = 'Terminal command approved; requesting a blocked command.';
@@ -165,12 +174,12 @@ export function buildCommandRiskFixturePage(expected: CommandRiskExpected): stri
         return;
       }
 
-      if (stage === 3 && result?.request_id === 'eval_command_blocked_4'
+      if (stage === 3 && result?.name === 'execute_command'
           && result.status === 'error' && output.includes(config.blockedReason)) {
         await sendTrace({
           event: 'blocked_command_observed',
           status: 'success',
-          requestId: result.request_id,
+          requestId: currentRequestId(),
           toolName: 'execute_command',
         });
         await complete();
@@ -190,7 +199,8 @@ export function buildCommandRiskFixturePage(expected: CommandRiskExpected): stri
       void sendTrace({
         event: 'tool_result_injected',
         status: 'success',
-        requestId: result?.request_id,
+        requestId: currentRequestId(),
+        toolName: result?.name,
         details: { contentLength: text.length },
       });
     });

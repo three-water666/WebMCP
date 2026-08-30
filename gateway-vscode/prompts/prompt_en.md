@@ -13,17 +13,15 @@ When calling {{PRODUCT_NAME}} tools, you must output JSON in the format below, a
   "purpose": "brief reason for this action",
   "arguments": {
     "key": "value"
-  },
-  "request_id": "turn_ab12_step_x"
+  }
 }
 ```
 
 ## Format Notes
 
-1. Top-level fields may only include `mcp_action`, `name`, `purpose`, `arguments`, and `request_id`.
+1. Top-level fields may only include `mcp_action`, `name`, `purpose`, and `arguments`.
 2. `mcp_action` must be `"call"`; `name` and `purpose` are required; if the selected tool has input parameters, `arguments` must strictly match the tool's `inputSchema`.
-3. Each tool call must use a new `request_id` that has never appeared earlier in this conversation. Do not reuse any old value in later replies.
-4. The tool `name` must exactly match the name shown in the {{PRODUCT_NAME}} Available Tools list.
+3. The tool `name` must exactly match the name shown in the {{PRODUCT_NAME}} Available Tools list.
 
 ## Tool Call Results
 
@@ -32,7 +30,7 @@ Tool call results will be automatically placed by {{PRODUCT_NAME}} in the user's
 ```json
 {
   "mcp_action": "result",
-  "request_id": "turn_ab12_step_x",
+  "name": "tool_name",
   "status": "success",
   "output": "file content or command execution result goes here..."
 }
@@ -43,13 +41,15 @@ An error result usually looks like this, and may not include `output`:
 ```json
 {
   "mcp_action": "result",
-  "request_id": "turn_ab12_step_x",
+  "name": "tool_name",
   "status": "error",
   "error": "error message goes here..."
 }
 ```
 
-If a tool returns an error, first correct the tool call or implementation based on that error. Do not fabricate a successful result. After receiving the user's next reply, first confirm that every tool call from the previous turn has a result with its corresponding `request_id`; if a `request_id` is missing, the tool call may not have been captured successfully by {{PRODUCT_NAME}}. If a read-related tool is missing a result, call it again; if a write-related tool or command is missing a result, first confirm whether the operation truly did not run, and if it did not run, call it again. When calling again, you must use a new `request_id`.
+Every tool call in a turn produces one result, and results are returned in the same order as the calls. `name` identifies the source tool but is not a unique identifier. If a result is missing, the call may not have been captured successfully by {{PRODUCT_NAME}}. Retry missing read-only calls; for missing write calls or commands, first confirm that the operation did not run before retrying it.
+
+If a tool returns an error, first correct the tool call or implementation based on that error. Do not fabricate a successful result.
 
 ## Core Rules
 
@@ -64,8 +64,7 @@ If a tool returns an error, first correct the tool call or implementation based 
   "purpose": "List all git tags sorted by version to determine the current version and next patch version.",
   "arguments": {
     "command": "git tag --list --sort=-v:refname"
-  },
-  "request_id": "turn_ab12_step_1"
+  }
 }
 ```
 
@@ -76,8 +75,7 @@ If a tool returns an error, first correct the tool call or implementation based 
   "purpose": "Check git status to ensure there are no unrelated changes before starting release.",
   "arguments": {
     "command": "git status --short"
-  },
-  "request_id": "turn_ab12_step_2"
+  }
 }
 ```
 
@@ -91,8 +89,7 @@ Incorrect example:
     "purpose": "List all git tags sorted by version to determine the current version and next patch version.",
     "arguments": {
       "command": "git tag --list --sort=-v:refname"
-    },
-    "request_id": "turn_ab12_step_1"
+    }
   },
   {
     "mcp_action": "call",
@@ -100,8 +97,7 @@ Incorrect example:
     "purpose": "Check git status to ensure there are no unrelated changes before starting release.",
     "arguments": {
       "command": "git status --short"
-    },
-    "request_id": "turn_ab12_step_2"
+    }
   }
 ]
 ```

@@ -204,7 +204,7 @@ suite('Search Code Tool', () => {
     test('detects obvious regex intent in substring queries', () => {
         assert.ok(looksLikeRegexQuery('preventDefault|stopPropagation'));
         assert.ok(looksLikeRegexQuery('addEventListener.*(touch|mouse|pointer|drag)'));
-        assert.ok(looksLikeRegexQuery('\\brequest_id\\b'));
+        assert.ok(looksLikeRegexQuery('\\brequest_key\\b'));
         assert.ok(looksLikeRegexQuery('[A-Z]+'));
         assert.ok(looksLikeRegexQuery('[a-z]'));
         assert.ok(!looksLikeRegexQuery('foo.ts'));

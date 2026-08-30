@@ -160,7 +160,6 @@ function buildMinimalToolLoopFixturePage(scenario: ContractE2EScenario): string 
         name: toolName,
         purpose,
         arguments: args,
-        request_id: requestId,
       }, null, 2);
       pre.appendChild(code);
       message.appendChild(pre);
@@ -204,6 +203,10 @@ function buildMinimalToolLoopFixturePage(scenario: ContractE2EScenario): string 
       return null;
     }
 
+    function currentRequestId() {
+      return stage === 0 ? 'eval_read_1' : 'eval_write_2';
+    }
+
     async function submitResult() {
       const text = input.value.trim();
       if (!text) {
@@ -215,7 +218,8 @@ function buildMinimalToolLoopFixturePage(scenario: ContractE2EScenario): string 
       await sendTrace({
         event: 'tool_result_submitted',
         status: result?.status === 'success' ? 'success' : 'error',
-        requestId: result?.request_id,
+        requestId: currentRequestId(),
+        toolName: result?.name,
         details: { contentLength: text.length, stage },
       });
 
@@ -225,7 +229,7 @@ function buildMinimalToolLoopFixturePage(scenario: ContractE2EScenario): string 
         return;
       }
 
-      if (stage === 0 && result.request_id === 'eval_read_1' && String(result.output).includes(config.readContains)) {
+      if (stage === 0 && result.name === 'read_file' && String(result.output).includes(config.readContains)) {
         stage = 1;
         status.textContent = 'Read result received; requesting a write.';
         renderToolCall(
@@ -237,7 +241,7 @@ function buildMinimalToolLoopFixturePage(scenario: ContractE2EScenario): string 
         return;
       }
 
-      if (stage === 1 && result.request_id === 'eval_write_2') {
+      if (stage === 1 && result.name === 'write_file') {
         stage = 2;
         const finalMessage = document.createElement('article');
         finalMessage.className = 'assistant-message';
@@ -263,7 +267,8 @@ function buildMinimalToolLoopFixturePage(scenario: ContractE2EScenario): string 
       void sendTrace({
         event: 'tool_result_injected',
         status: 'success',
-        requestId: result?.request_id,
+        requestId: currentRequestId(),
+        toolName: result?.name,
         details: { contentLength: text.length },
       });
     });

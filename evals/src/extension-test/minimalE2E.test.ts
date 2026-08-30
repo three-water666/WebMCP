@@ -197,16 +197,16 @@ function assertTraceContainsToolSuccess(
             event.source === 'gateway'
             && event.event === 'tool_call_finished'
             && event.toolName === toolName
-            && event.requestId === requestId
             && event.status === 'success'
         )),
-        `Trace should contain a successful ${toolName} Gateway event for ${requestId}.`
+        `Trace should contain a successful ${toolName} Gateway event.`
     );
     assert.ok(
         trace.some(event => (
             event.source === 'fixture-site'
             && event.event === 'tool_result_injected'
             && event.requestId === requestId
+            && event.toolName === toolName
         )),
         `Trace should contain a browser result injection event for ${requestId}.`
     );

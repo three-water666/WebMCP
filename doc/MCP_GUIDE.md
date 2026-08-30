@@ -144,8 +144,7 @@ chrome-devtools:<toolName>
   "mcp_action": "call",
   "name": "chrome-devtools:<toolName>",
   "purpose": "Use Chrome DevTools MCP for the browser task.",
-  "arguments": {},
-  "request_id": "turn_unique_step_1"
+  "arguments": {}
 }
 ```
 

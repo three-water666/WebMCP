@@ -9,14 +9,12 @@ const FIRST_PAYLOAD: ToolExecutionPayload = {
   arguments: { path: "README.md" },
   name: "read_file",
   purpose: "Read the project documentation",
-  request_id: "turn_step_1",
 };
 
 const SECOND_PAYLOAD: ToolExecutionPayload = {
   arguments: { query: "ToolActivityTracker" },
   name: "search_files",
   purpose: "Find the activity tracker",
-  request_id: "turn_step_2",
 };
 
 function main(): void {
@@ -30,12 +28,12 @@ function testGroupsMessageCalls(): void {
   const messageElement = {} as Element;
 
   harness.controller.capture({
-    identity: { requestId: "turn_step_1", requestKey: "dom-key-1" },
+    identity: { requestKey: "dom-key-1" },
     messageElement,
     payload: FIRST_PAYLOAD,
   });
   harness.controller.capture({
-    identity: { requestId: "turn_step_2", requestKey: "dom-key-2" },
+    identity: { requestKey: "dom-key-2" },
     messageElement,
     payload: SECOND_PAYLOAD,
   });
@@ -50,12 +48,12 @@ function testCreatesNewMessageTurn(): void {
   const harness = createHarness();
 
   harness.controller.capture({
-    identity: { requestId: "turn_step_1", requestKey: "dom-key-1" },
+    identity: { requestKey: "dom-key-1" },
     messageElement: {} as Element,
     payload: FIRST_PAYLOAD,
   });
   harness.controller.capture({
-    identity: { requestId: "turn_step_2", requestKey: "dom-key-2" },
+    identity: { requestKey: "dom-key-2" },
     messageElement: {} as Element,
     payload: SECOND_PAYLOAD,
   });
@@ -70,14 +68,14 @@ function testResetStartsNewTurn(): void {
   const messageElement = {} as Element;
 
   harness.controller.capture({
-    identity: { requestId: "turn_step_1", requestKey: "dom-key-1" },
+    identity: { requestKey: "dom-key-1" },
     messageElement,
     payload: FIRST_PAYLOAD,
   });
   const firstTurnId = harness.getSnapshot().turns[0]?.id;
   harness.controller.reset();
   harness.controller.capture({
-    identity: { requestId: "turn_step_2", requestKey: "dom-key-2" },
+    identity: { requestKey: "dom-key-2" },
     messageElement,
     payload: SECOND_PAYLOAD,
   });

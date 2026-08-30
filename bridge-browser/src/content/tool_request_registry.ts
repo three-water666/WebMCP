@@ -36,11 +36,10 @@ export interface BufferedResultBatch extends ToolResultDeliveryBatch {
 /**
  * 一次工具调用在 bridge 内部使用的稳定身份。
  *
- * requestId 是模型协议里的 request_id，会写回 MCP result。requestKey 是 bridge 自己生成的
- * 唯一生命周期键，用来避免模型复用 request_id 时把多个工具调用合并成同一个请求。
+ * requestKey 由 bridge 根据当前消息或网络 turn 生成，是模型不可见的唯一生命周期键。
+ * 它负责去重、执行状态、结果缓存和交付关联，不依赖模型提供标识。
  */
 export interface ToolRequestIdentity {
-  requestId: string;
   requestKey: string;
 }
 
@@ -54,19 +53,14 @@ type BufferedResult =
     content: string;
     isError: boolean;
     kind: "tool";
-    requestId: string;
     systemNote?: string;
-    toolName?: string;
+    toolName: string;
   };
-
-interface DuplicateResultContext {
-  occurrence: number;
-  total: number;
-}
 
 interface SaveToolResultOptions {
   attachments?: readonly ToolResultAttachment[];
-  toolName?: string;
+  isError?: boolean;
+  toolName: string;
 }
 
 /**
@@ -182,10 +176,8 @@ export class ToolRequestRegistry {
    */
   public saveToolResult(
     requestKey: string,
-    requestId: string,
     content: string,
-    isError = false,
-    options: SaveToolResultOptions = {}
+    options: SaveToolResultOptions
   ): void {
     this.toolCallCount++;
     let systemNote: string | undefined;
@@ -196,9 +188,8 @@ export class ToolRequestRegistry {
     this.bufferedResults.set(requestKey, {
       attachments: (options.attachments ?? []).map((attachment) => ({ ...attachment })),
       content,
-      isError,
+      isError: options.isError === true,
       kind: "tool",
-      requestId,
       systemNote,
       toolName: options.toolName,
     });
@@ -244,18 +235,13 @@ export class ToolRequestRegistry {
     const attachmentGroups: ToolResultAttachmentGroup[] = [];
     const orderedResults: string[] = [];
     let hasAnyResult = false;
-    const toolRequestIdCounts = this.countToolRequestIds(requestKeys);
-    const toolRequestIdOccurrences = new Map<string, number>();
 
     requestKeys.forEach((key) => {
       const bufferedResult = this.bufferedResults.get(key);
       if (!bufferedResult) {return;}
       hasAnyResult = true;
 
-      const result = this.formatBufferedResult(
-        bufferedResult,
-        this.getDuplicateResultContext(bufferedResult, toolRequestIdCounts, toolRequestIdOccurrences)
-      );
+      const result = this.formatBufferedResult(bufferedResult);
       if (result) {
         const outputIndex = orderedResults.length;
         orderedResults.push(result);
@@ -263,7 +249,6 @@ export class ToolRequestRegistry {
           attachmentGroups.push({
             attachments: bufferedResult.attachments.map((attachment) => ({ ...attachment })),
             outputIndex,
-            requestId: bufferedResult.requestId,
             toolName: bufferedResult.toolName,
           });
         }
@@ -304,55 +289,21 @@ export class ToolRequestRegistry {
     return !this.runningRequests.has(requestKey) && this.bufferedResults.has(requestKey);
   }
 
-  private countToolRequestIds(requestKeys: readonly string[]): Map<string, number> {
-    const counts = new Map<string, number>();
-    requestKeys.forEach((key) => {
-      const bufferedResult = this.bufferedResults.get(key);
-      if (bufferedResult?.kind !== "tool") {return;}
-      counts.set(bufferedResult.requestId, (counts.get(bufferedResult.requestId) ?? 0) + 1);
-    });
-    return counts;
-  }
-
-  private getDuplicateResultContext(
-    bufferedResult: BufferedResult,
-    requestIdCounts: ReadonlyMap<string, number>,
-    requestIdOccurrences: Map<string, number>
-  ): DuplicateResultContext | undefined {
-    if (bufferedResult.kind !== "tool") {return undefined;}
-
-    const total = requestIdCounts.get(bufferedResult.requestId) ?? 0;
-    if (total <= 1) {return undefined;}
-
-    const occurrence = (requestIdOccurrences.get(bufferedResult.requestId) ?? 0) + 1;
-    requestIdOccurrences.set(bufferedResult.requestId, occurrence);
-    return {
-      occurrence,
-      total,
-    };
-  }
-
-  private formatBufferedResult(
-    bufferedResult: BufferedResult,
-    duplicateContext?: DuplicateResultContext
-  ): string {
+  private formatBufferedResult(bufferedResult: BufferedResult): string {
     if (bufferedResult.kind === "raw") {
       return bufferedResult.content;
     }
 
-    const content = duplicateContext
-      ? addDuplicateRequestContext(bufferedResult.content, bufferedResult, duplicateContext)
-      : bufferedResult.content;
     const responseJson: McpResponse = {
       mcp_action: "result",
-      request_id: bufferedResult.requestId,
+      name: bufferedResult.toolName,
       status: bufferedResult.isError ? "error" : "success",
     };
 
     if (bufferedResult.isError) {
-      responseJson.error = content;
+      responseJson.error = bufferedResult.content;
     } else {
-      responseJson.output = content;
+      responseJson.output = bufferedResult.content;
     }
     if (bufferedResult.systemNote) {
       responseJson.system_note = bufferedResult.systemNote;
@@ -419,23 +370,9 @@ function formatJsonCodeBlock(responseJson: McpResponse): string {
   )}\n\`\`\``;
 }
 
-function addDuplicateRequestContext(
-  content: string,
-  bufferedResult: Extract<BufferedResult, { kind: "tool" }>,
-  duplicateContext: DuplicateResultContext
-): string {
-  const toolLabel = bufferedResult.toolName ? ` for tool "${bufferedResult.toolName}"` : "";
-  const prefix = [
-    `webcode note: duplicate request_id "${bufferedResult.requestId}" result`,
-    `${duplicateContext.occurrence}/${duplicateContext.total}${toolLabel}.`,
-  ].join(" ");
-
-  return content ? `${prefix}\n\n${content}` : prefix;
-}
-
 /**
  * 当本地提示词资源还没加载到训练提示时，使用这个兜底协议提醒。
  */
 function getDefaultToolCallReminder(): string {
-  return "[System] Reminder: Tool calls MUST use this JSON format: {\"mcp_action\":\"call\", \"name\": \"tool_name\", \"purpose\": \"reason\", \"arguments\": {...}, \"request_id\": \"turn_unique_step_x\"}. request_id must be new for every tool call in this conversation.";
+  return "[System] Reminder: Tool calls MUST use this JSON format: {\"mcp_action\":\"call\", \"name\": \"tool_name\", \"purpose\": \"reason\", \"arguments\": {...}}. Results are returned in the same order as calls.";
 }

@@ -52,7 +52,6 @@ const TOOL_CALL = JSON.stringify({
   mcp_action: "call",
   name: "read_file",
   purpose: "Read the project documentation",
-  request_id: "turn_step_1",
 });
 
 async function main(): Promise<void> {
@@ -172,7 +171,7 @@ function getExecutedIdentity(harness: RuntimeHarness, index: number): ToolReques
 
 function completeTool(harness: RuntimeHarness, identity: ToolRequestIdentity, output: string): void {
   harness.registry.markSettled(identity.requestKey);
-  harness.registry.saveToolResult(identity.requestKey, identity.requestId, output);
+  harness.registry.saveToolResult(identity.requestKey, output, { toolName: "read_file" });
 }
 
 function installBrowserGlobals(): void {

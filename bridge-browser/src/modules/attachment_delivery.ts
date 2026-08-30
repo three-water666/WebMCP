@@ -51,7 +51,7 @@ export function toAttachmentFailure(
   return {
     outputIndex: group.outputIndex,
     reason,
-    requestId: group.requestId,
+    toolName: group.toolName,
   };
 }
 
@@ -59,7 +59,7 @@ export function buildAttachmentFailureReason(
   group: ToolResultAttachmentGroup,
   detail: string
 ): string {
-  const toolName = group.toolName ?? "The attachment-producing tool";
+  const toolName = group.toolName;
   const attachments = group.attachments
     .map((attachment) => `"${attachment.name}" (${attachment.mimeType})`)
     .join(", ");
