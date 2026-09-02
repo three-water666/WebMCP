@@ -107,6 +107,7 @@ export const editFileTool: LocalTool = {
         if (!dryRun && modifiedContent !== originalContent) {
             const contentToWrite = usesCRLF ? modifiedContent.replace(/\n/g, '\r\n') : modifiedContent;
             await atomicWriteFile(filePath, contentToWrite);
+            context.checkpointState?.recordChangedFile(String(args.path));
         }
 
         return textResult(diff);

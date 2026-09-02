@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { ToolExecutionContext } from '../tools/types';
+import { SessionMetricsCollector } from '../session/sessionMetricsCollector';
 import { writeFileTool } from '../tools/writeFileTool';
 
 suite('Write File Tool', () => {
@@ -24,7 +25,7 @@ suite('Write File Tool', () => {
                     path: relativePath,
                     content: 'hello\n'
                 },
-                { workspaceRoot } as ToolExecutionContext
+                { workspaceRoot, metricsCollector: new SessionMetricsCollector() } as ToolExecutionContext
             );
 
             assert.strictEqual(await fs.readFile(targetPath, 'utf8'), 'hello\n');
@@ -41,7 +42,7 @@ suite('Write File Tool', () => {
                     path: relativePath,
                     content: 'partial\n'
                 },
-                { workspaceRoot } as ToolExecutionContext
+                { workspaceRoot, metricsCollector: new SessionMetricsCollector() } as ToolExecutionContext
             );
 
             assert.strictEqual(
@@ -62,7 +63,7 @@ suite('Write File Tool', () => {
                     path: relativePath,
                     content: 'new\n'
                 },
-                { workspaceRoot } as ToolExecutionContext
+                { workspaceRoot, metricsCollector: new SessionMetricsCollector() } as ToolExecutionContext
             );
 
             assert.strictEqual(await fs.readFile(targetPath, 'utf8'), 'new\n');
@@ -76,7 +77,7 @@ suite('Write File Tool', () => {
                     path: '../outside/sample.txt',
                     content: 'nope\n'
                 },
-                { workspaceRoot } as ToolExecutionContext
+                { workspaceRoot, metricsCollector: new SessionMetricsCollector() } as ToolExecutionContext
             );
 
             await assert.rejects(
@@ -97,7 +98,7 @@ suite('Write File Tool', () => {
                         path: outsideFileArg,
                         content: 'nope\n'
                     },
-                    { workspaceRoot } as ToolExecutionContext
+                    { workspaceRoot, metricsCollector: new SessionMetricsCollector() } as ToolExecutionContext
                 );
 
                 await assert.rejects(
@@ -121,7 +122,7 @@ suite('Write File Tool', () => {
                     path: 'nested\\sample.txt',
                     content: 'nope\n'
                 },
-                { workspaceRoot } as ToolExecutionContext
+                { workspaceRoot, metricsCollector: new SessionMetricsCollector() } as ToolExecutionContext
             );
 
             await assert.rejects(
@@ -146,7 +147,7 @@ suite('Write File Tool', () => {
                         path: 'outside-link/nested/sample.txt',
                         content: 'nope\n'
                     },
-                    { workspaceRoot } as ToolExecutionContext
+                    { workspaceRoot, metricsCollector: new SessionMetricsCollector() } as ToolExecutionContext
                 );
 
                 await assert.rejects(

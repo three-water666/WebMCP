@@ -14,6 +14,8 @@ import type {
 import { getErrorMessage } from './errorUtils';
 import { resolveLocalPathArguments } from './pathArguments';
 import type { GatewayErrorLogger, GatewayLogger, RemoteToolRoute } from './types';
+import type { SessionMetricsCollector } from '../session/sessionMetricsCollector';
+import type { SessionRuntime } from '../session/sessionRuntime';
 
 type ToolCallHandlerOptions = {
     createToolExecutionContext: () => ToolExecutionContext;
@@ -23,6 +25,8 @@ type ToolCallHandlerOptions = {
     localTools: Map<string, LocalTool>;
     log: GatewayLogger;
     toolRouter: Map<string, RemoteToolRoute>;
+    metricsCollector: SessionMetricsCollector;
+    sessionRuntime: SessionRuntime;
 };
 
 type ParsedToolCallRequest = {
@@ -110,9 +114,22 @@ async function executeLocalTool(
     options: ToolCallHandlerOptions
 ) {
     try {
+        options.metricsCollector.recordToolCall(request.name);
         const argsPreview = JSON.stringify(request.args ?? {}).slice(0, 80);
         options.log(`   🚀 Executing local tool: ${request.name} ${argsPreview}`);
         const result = await localTool.execute(request.args, options.createToolExecutionContext());
+
+        const checkpointState = options.sessionRuntime.checkpointState;
+        checkpointState?.recordCompletedWork(request.name);
+        checkpointState?.setVerification(`verified: ${request.name} completed successfully`);
+        checkpointState?.setNextStep('continue with next planned task');
+
+        const health = options.sessionRuntime.getHealth();
+
+        if (health.shouldCheckpoint) {
+            options.log(`   📌 Checkpoint recommended: ${health.risks.join(', ')}`);
+        }
+
         const toolDuration = Date.now() - toolStart;
         options.log(`   ✅ Finished local tool: ${request.name} (${toolDuration}ms)`);
         return res.json(result);
@@ -130,6 +147,7 @@ async function executeRemoteTool(
     options: ToolCallHandlerOptions
 ) {
     try {
+        options.metricsCollector.recordToolCall(request.name);
         const argsPreview = JSON.stringify(request.args ?? {}).slice(0, 50) + '...';
         options.log(`   🚀 Executing MCP tool: ${request.name} ${argsPreview}`);
         const result = await route.client.callTool({ name: route.toolName, arguments: request.args ?? {} });

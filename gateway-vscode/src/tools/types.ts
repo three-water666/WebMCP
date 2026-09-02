@@ -1,6 +1,8 @@
 import type * as vscode from 'vscode';
 import type { SkillManager } from '../skillManager';
 import type { TerminalSessionManager } from '../terminalSessionManager';
+import type { SessionMetricsCollector } from '../session/sessionMetricsCollector';
+import type { SessionCheckpointStateStore } from '../session/sessionCheckpointState';
 
 export type ToolContent = {
     type: string;
@@ -21,6 +23,8 @@ export type ToolDefinition = Record<string, unknown> & {
 };
 
 export type ToolExecutionContext = {
+    metricsCollector: SessionMetricsCollector;
+    checkpointState?: SessionCheckpointStateStore;
     workspaceRoot: string | null;
     outputChannel: vscode.OutputChannel;
     skillManager: SkillManager;

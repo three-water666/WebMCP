@@ -7,10 +7,14 @@ import { buildSyncedAiSites } from './syncedSites';
 export function registerConfigRoutes(
     app: express.Express,
     config: GatewayConfig,
-    log: GatewayLogger
+    log: GatewayLogger,
+    getSessionHealth?: () => unknown
 ): void {
     app.get('/v1/status', (_req, res) => {
-        res.json({ ok: true });
+        res.json({
+            ok: true,
+            sessionHealth: getSessionHealth?.()
+        });
     });
 
     app.get('/v1/init', (req, res) => {

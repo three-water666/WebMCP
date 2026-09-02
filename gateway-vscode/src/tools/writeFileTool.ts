@@ -29,6 +29,8 @@ export const writeFileTool: LocalTool = {
             createParentDirectories: true
         })).absolutePath;
         await atomicWriteFile(filePath, String(args.content));
+        context.metricsCollector.recordFileModification(String(args.path));
+        context.checkpointState?.recordChangedFile(String(args.path));
         return textResult(`Successfully wrote ${String(args.path)}`);
     }
 };

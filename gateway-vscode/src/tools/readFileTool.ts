@@ -45,6 +45,7 @@ export const readFileTool: LocalTool = {
         }
 
         const filePath = (await resolveWorkspaceRelativePath(context.workspaceRoot, args.path)).absolutePath;
+        context.metricsCollector.recordFileRead(String(args.path));
         const fileStats = await fs.stat(filePath);
         const result = await readFileContent(filePath, fileStats.size, args);
         return formatReadFileToolResult(result);

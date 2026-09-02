@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 
 import { getErrorMessage } from './gateway/errorUtils';
 import { SkillManager } from './skillManager';
+import { SessionRuntime } from './session/sessionRuntime';
 import { TerminalSessionManager } from './terminalSessionManager';
 import {
     createLocalToolMap,
@@ -42,10 +43,11 @@ export class GatewayManager {
     private context: vscode.ExtensionContext;
     private authToken: string = '';
     private watchdogTimer: NodeJS.Timeout | null = null;
-    private readonly WATCHDOG_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+    private readonly WATCHDOG_TIMEOUT = 12 * 60 * 60 * 1000; // 12 hours
     private onAutoStop: (() => void) | null = null;
     private skillManager: SkillManager;
     private terminalSessionManager: TerminalSessionManager;
+    private readonly sessionRuntime = new SessionRuntime();
     private skillDirectories: string[] = [];
     private commandShellPath: string | undefined;
 
@@ -114,6 +116,8 @@ export class GatewayManager {
 
     private createToolExecutionContext(): ToolExecutionContext {
         return {
+            metricsCollector: this.sessionRuntime.metricsCollector,
+            checkpointState: this.sessionRuntime.checkpointState,
             workspaceRoot: this.getPrimaryWorkspaceRoot(),
             outputChannel: this.outputChannel,
             skillManager: this.skillManager,
@@ -148,7 +152,12 @@ export class GatewayManager {
         ));
         this.app.use(createAuthMiddleware(() => this.authToken, this.log.bind(this)));
 
-        registerConfigRoutes(this.app, config, this.log.bind(this));
+        registerConfigRoutes(
+            this.app,
+            config,
+            this.log.bind(this),
+            () => this.sessionRuntime.getHealth()
+        );
         registerBridgeRoute(this.app, {
             getPort: () => this.getServerPort(),
             getAiSites: () => config.aiSites ?? [],
@@ -165,7 +174,9 @@ export class GatewayManager {
             getWorkspaceRoot: () => this.getPrimaryWorkspaceRoot(),
             localTools: this.localTools,
             log: this.log.bind(this),
-            toolRouter: this.toolRouter
+            toolRouter: this.toolRouter,
+            metricsCollector: this.sessionRuntime.metricsCollector,
+            sessionRuntime: this.sessionRuntime
         }));
     }
 

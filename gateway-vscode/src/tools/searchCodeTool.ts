@@ -81,6 +81,7 @@ export const searchCodeTool: LocalTool = {
         const searchRoot = (await resolveWorkspaceRelativeDirectory(context.workspaceRoot, args.path ?? '.')).absolutePath;
         const workspaceRoot = context.workspaceRoot ?? searchRoot;
         const query = String(args.query);
+        context.metricsCollector.recordSearch(query);
         const maxResults = getNumberArg(args.max_results, 100);
         const options = {
             searchRoot,

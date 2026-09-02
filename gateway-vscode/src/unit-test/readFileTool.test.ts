@@ -6,6 +6,7 @@ import { BUILTIN_CREATE_SKILLS_SKILL_FILE_PATH, resolveBuiltinSkillVirtualFile }
 import { readFileContent, readFilePrefix, readFileTool, selectReadFileContent, selectReadFileResult } from '../tools/readFileTool';
 import { READ_FILE_OUTPUT_MAX_BYTES, READ_FILE_OUTPUT_MAX_LINES } from '../tools/readFileOutputLimit';
 import type { ToolExecutionContext } from '../tools';
+import { SessionMetricsCollector } from '../session/sessionMetricsCollector';
 import { resolveWorkspaceRelativeDirectory, resolveWorkspaceRelativePath } from '../tools/workspacePath';
 
 suite('Read File Tool', () => {
@@ -396,6 +397,7 @@ function createReadFileToolContext(
     skillManager: Partial<ToolExecutionContext['skillManager']> = {}
 ): ToolExecutionContext {
     return {
+        metricsCollector: new SessionMetricsCollector(),
         workspaceRoot,
         outputChannel: {
             appendLine(value: string) {
