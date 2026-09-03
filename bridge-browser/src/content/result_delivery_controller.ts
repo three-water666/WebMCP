@@ -38,7 +38,10 @@ export class ResultDeliveryController {
         }
 
         this.options.toolActivityTracker.updateDelivery(resultBatch.ids, "delivered");
-        UI.triggerAutoSend({ autoSend: this.options.getAutoSend() }, selectors);
+        UI.triggerAutoSend({
+          autoSend: this.options.getAutoSend(),
+          hasFileUpload: delivery.uploaded,
+        }, selectors);
       })
       .catch((error: unknown) => {
         batchFinalized = true;

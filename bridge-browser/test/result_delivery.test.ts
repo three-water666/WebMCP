@@ -16,6 +16,7 @@ async function main(): Promise<void> {
     assertEqual(page.actions[2], "write", "result text was written before the attachment wait");
     assert(page.input.innerText.includes('"status": "success"'), "acknowledged attachment became an error");
     assert(delivery.delivered, "acknowledged result was not delivered");
+    assert(delivery.uploaded, "dispatched attachment was not reported to auto-send");
   });
   await runTest("reports an unacknowledged paste for only its attachment result", async () => {
     const page = installFakePage(false);
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
     assert(page.input.innerText.includes('"name": "read_file"'), "unrelated result was lost");
     assert(page.input.innerText.includes('"output": "text result"'), "unrelated result was changed");
     assert(delivery.delivered, "attachment failure text did not remain sendable");
+    assert(delivery.uploaded, "unacknowledged attachment dispatch was not reported to auto-send");
   });
   await runTest("acknowledges each attachment group independently", async () => {
     const page = installFakePage([true, false]);
