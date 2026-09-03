@@ -207,9 +207,12 @@ function testDetailedHistoryBlock(Overlay: OverlayConstructor): void {
   assertIncludes(historyPanel.getText(), "Run read_file", "history omitted the tool purpose");
   assertIncludes(harness.panel.getText(), "Running", "current status was not kept visible");
 
+  const currentBeforeUpdate = getRequired(harness.panel, ".list");
+  currentBeforeUpdate.scrollTop = 67;
   const historyBeforeUpdate = getRequired(harness.stack, ".history-list");
   historyBeforeUpdate.scrollTop = 41;
   harness.tracker.updateStatus({ requestKey: currentKey }, "awaiting_approval");
+  assertEqual(getRequired(harness.panel, ".list").scrollTop, 67, "live update reset current scroll");
   assertEqual(getRequired(harness.stack, ".history-list").scrollTop, 41, "live update reset history scroll");
   assertIncludes(harness.panel.getText(), "Approval", "current approval state did not update");
 
