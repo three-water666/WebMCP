@@ -24,6 +24,7 @@ function testRetainsLatestEightTurns(): void {
     tracker.capture({
       identity: { requestKey: `request-${index}` },
       payload: { name: `tool-${index}` },
+      source: "dom",
       turnId,
     });
   }

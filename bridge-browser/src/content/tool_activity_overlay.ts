@@ -271,10 +271,16 @@ function createActivityRow(item: ToolActivityItem): HTMLElement {
   const name = document.createElement("span");
   name.className = "tool-name";
   name.textContent = item.toolName;
+  const source = document.createElement("span");
+  source.className = `source-badge ${item.source}`;
+  source.textContent = t(item.source === "network" ? "activity_source_network" : "activity_source_dom");
+  const toolIdentity = document.createElement("div");
+  toolIdentity.className = "tool-identity";
+  toolIdentity.append(name, source);
   const status = document.createElement("span");
   status.className = "status";
   status.textContent = getItemStatusText(item);
-  top.append(name, status);
+  top.append(toolIdentity, status);
   content.appendChild(top);
 
   if (item.purpose) {content.appendChild(createTextLine("purpose", item.purpose));}

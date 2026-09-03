@@ -10,6 +10,8 @@ export type ToolActivityStatus =
   | "failed"
   | "rejected";
 
+export type ToolActivitySource = "dom" | "network";
+
 export type ToolActivityDeliveryStatus =
   | "pending"
   | "waiting"
@@ -23,6 +25,7 @@ export interface ToolActivityItem {
   message?: string;
   purpose?: string;
   requestKey: string;
+  source: ToolActivitySource;
   startedAt?: number;
   status: ToolActivityStatus;
   toolName: string;
@@ -46,12 +49,14 @@ type ToolActivityListener = (snapshot: ToolActivitySnapshot) => void;
 interface CaptureActivityOptions {
   identity: ToolRequestIdentity;
   payload: ToolExecutionPayload;
+  source: ToolActivitySource;
   turnId: string;
 }
 
 interface CaptureProtocolErrorOptions {
   identity: ToolRequestIdentity;
   message: string;
+  source: ToolActivitySource;
   turnId: string;
 }
 
@@ -82,7 +87,7 @@ export class ToolActivityTracker {
   }
 
   public capture(options: CaptureActivityOptions): void {
-    const { identity, payload, turnId } = options;
+    const { identity, payload, source, turnId } = options;
     if (this.items.has(identity.requestKey)) {return;}
 
     const turn = this.ensureTurn(turnId);
@@ -91,6 +96,7 @@ export class ToolActivityTracker {
       detail: getPayloadDetail(payload),
       purpose: normalizeText(payload.purpose),
       requestKey: identity.requestKey,
+      source,
       status: "captured",
       toolName: payload.name,
       turnId,
@@ -99,7 +105,7 @@ export class ToolActivityTracker {
   }
 
   public captureProtocolError(options: CaptureProtocolErrorOptions): void {
-    const { identity, message, turnId } = options;
+    const { identity, message, source, turnId } = options;
     if (this.items.has(identity.requestKey)) {return;}
 
     const turn = this.ensureTurn(turnId);
@@ -108,6 +114,7 @@ export class ToolActivityTracker {
       completedAt: Date.now(),
       message,
       requestKey: identity.requestKey,
+      source,
       status: "failed",
       toolName: "invalid_tool_call",
       turnId,

@@ -23,6 +23,7 @@ export class DomToolActivityController {
     this.tracker.capture({
       identity: options.identity,
       payload: options.payload,
+      source: "dom",
       turnId: this.getTurnId(options.messageElement),
     });
   }

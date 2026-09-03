@@ -43,8 +43,12 @@ export const TOOL_ACTIVITY_STYLE_TEXT = `
   .row.failed .status-dot, .row.rejected .status-dot { background: #ef4444; }
   .row-content { min-width: 0; flex: 1; }
   .row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-  .tool-name { overflow: hidden; color: #f3f4f6; font: 600 12px/1.4 "SFMono-Regular", Consolas, monospace;
+  .tool-identity { min-width: 0; display: flex; align-items: center; gap: 6px; }
+  .tool-name { min-width: 0; overflow: hidden; color: #f3f4f6; font: 600 12px/1.4 "SFMono-Regular", Consolas, monospace;
     text-overflow: ellipsis; white-space: nowrap; }
+  .source-badge { flex: 0 0 auto; padding: 0 5px; border: 1px solid #555d69; border-radius: 999px;
+    color: #d1d5db; background: rgba(107, 114, 128, .16); font-size: 9px; font-weight: 650; line-height: 16px; }
+  .source-badge.network { border-color: #315d9e; color: #93c5fd; background: rgba(37, 99, 235, .18); }
   .status { flex: 0 0 auto; color: #aeb5c2; font-size: 10px; }
   .purpose, .detail, .message { overflow: hidden; margin-top: 3px; text-overflow: ellipsis; white-space: nowrap; }
   .purpose { color: #c4c9d2; }

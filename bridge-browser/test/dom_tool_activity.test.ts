@@ -41,6 +41,7 @@ function testGroupsMessageCalls(): void {
   const snapshot = harness.getSnapshot();
   assertEqual(snapshot.turns.length, 1, "calls from one message were split into multiple turns");
   assertEqual(snapshot.items.length, 2, "not all DOM calls were registered");
+  assert(snapshot.items.every((item) => item.source === "dom"), "DOM calls did not retain their source");
   assertEqual(snapshot.turns[0]?.requestKeys.join(","), "dom-key-1,dom-key-2", "DOM call order changed");
 }
 
