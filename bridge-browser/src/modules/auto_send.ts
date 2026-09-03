@@ -9,20 +9,18 @@ import {
 } from "./page_selectors";
 import { isElementVisible } from "./dom_helpers";
 import { showUserAttentionNotification } from "./user_attention";
+import { getAutoSendAction, getAutoSendAttemptLimit } from "./auto_send_policy";
 
 let autoSendTimer: NodeJS.Timeout | null = null;
-type AutoSendAction = "ctrl-enter" | "enter" | "button";
 
 const AUTO_SEND_INITIAL_DELAY_MS = 350;
 const AUTO_SEND_SETTLE_MS = 1200;
 const AUTO_SEND_RETRY_MS = 1600;
-const AUTO_SEND_ACTIONS: AutoSendAction[] = [
-  "enter",
-  "ctrl-enter",
-  "button",
-  "enter",
-  "ctrl-enter",
-];
+
+export interface AutoSendConfig {
+  autoSend: boolean;
+  hasFileUpload: boolean;
+}
 
 /**
  * 终止当前正在进行的自动发送轮询机制
@@ -51,7 +49,7 @@ export function cancelAutoSend() {
  * - 4. 如果所有轮次还是失败，系统会弹出通知警告用户。
  */
 export function triggerAutoSend(
-  config: { autoSend: boolean },
+  config: AutoSendConfig,
   domSelectors: SiteSelectors
 ) {
   if (!config.autoSend) {return;}
@@ -61,7 +59,7 @@ export function triggerAutoSend(
   }
 
   let retryCount = 0;
-  const maxRetries = AUTO_SEND_ACTIONS.length;
+  const maxRetries = getAutoSendAttemptLimit(config.hasFileUpload);
 
   const getInputEl = () => getInputAreaElement(domSelectors);
   const getInputValue = (inputEl: HTMLElement): string => {
@@ -107,7 +105,7 @@ export function triggerAutoSend(
       inputEl.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
-    const action = AUTO_SEND_ACTIONS[retryCount] ?? "enter";
+    const action = getAutoSendAction(retryCount);
     if (action === "ctrl-enter" || action === "enter") {
       if (inputEl) {
         const withCtrl = action === "ctrl-enter";
