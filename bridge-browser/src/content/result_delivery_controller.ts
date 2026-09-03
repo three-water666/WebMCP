@@ -81,7 +81,7 @@ export class ResultDeliveryController {
       const followUps = this.options.getAutoSend()
         ? this.options.followUpQueue.beginDelivery()
         : { ids: [], messages: [] };
-      await this.writeFollowUpsAndSend(followUps, selectors);
+      await this.writeFollowUpsAndSend(followUps, selectors, delivery.uploaded);
     } catch (error: unknown) {
       if (!batchFinalized) {
         batchFinalized = true;
@@ -96,7 +96,8 @@ export class ResultDeliveryController {
 
   private async writeFollowUpsAndSend(
     followUps: FollowUpDelivery,
-    selectors: SiteSelectors
+    selectors: SiteSelectors,
+    hasFileUpload = false
   ): Promise<void> {
     try {
       if (followUps.ids.length > 0) {
@@ -109,7 +110,7 @@ export class ResultDeliveryController {
       }
 
       const sendResult = await UI.triggerAutoSend(
-        { autoSend: this.options.getAutoSend() },
+        { autoSend: this.options.getAutoSend(), hasFileUpload },
         selectors
       );
       if (sendResult === "sent") {

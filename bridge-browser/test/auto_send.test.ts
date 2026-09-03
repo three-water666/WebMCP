@@ -43,19 +43,19 @@ async function main(): Promise<void> {
   const { cancelAutoSend, triggerAutoSend } = await import("../src/modules/auto_send");
 
   input.innerText = "message";
-  const successfulSend = triggerAutoSend({ autoSend: true }, SELECTORS);
+  const successfulSend = triggerAutoSend({ autoSend: true, hasFileUpload: false }, SELECTORS);
   flushNextTimer();
   flushNextTimer();
   assertEqual(await successfulSend, "sent", "successful send did not resolve as sent");
 
   input.innerText = "message";
-  const cancelledSend = triggerAutoSend({ autoSend: true }, SELECTORS);
+  const cancelledSend = triggerAutoSend({ autoSend: true, hasFileUpload: false }, SELECTORS);
   cancelAutoSend();
   assertEqual(await cancelledSend, "cancelled", "cancelled send did not resolve");
   assertEqual(timers.size, 0, "cancelled send left a retry timer");
 
   assertEqual(
-    await triggerAutoSend({ autoSend: false }, SELECTORS),
+    await triggerAutoSend({ autoSend: false, hasFileUpload: false }, SELECTORS),
     "disabled",
     "disabled auto-send did not resolve"
   );

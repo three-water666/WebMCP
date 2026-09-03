@@ -266,6 +266,7 @@ function captureTool(tracker: ToolActivityTracker): void {
   tracker.capture({
     identity: { requestKey: "follow-up-tool" },
     payload: { name: "read_file", purpose: "Read context" },
+    source: "dom",
     turnId: "follow-up-turn",
   });
 }

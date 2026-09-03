@@ -82,6 +82,8 @@ const I18N_MESSAGES: Record<string, { en: string; zh: string }> = {
   activity_hide_history: { en: "Hide history", zh: "隐藏历史" },
   activity_no_history: { en: "No previous tool activity", zh: "暂无之前的工具活动" },
   activity_drag: { en: "Drag tool activity window", zh: "拖动工具活动窗口" },
+  activity_source_dom: { en: "DOM", zh: "DOM" },
+  activity_source_network: { en: "Network", zh: "网络" },
 
   follow_up_title: { en: "Next-turn follow-up", zh: "下一轮补充" },
   follow_up_description: {

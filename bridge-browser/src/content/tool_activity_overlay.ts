@@ -53,11 +53,13 @@ export class ToolActivityOverlay {
       return;
     }
 
-    if (currentEntry.turn.id !== this.currentTurnId) {
+    const isSameTurn = currentEntry.turn.id === this.currentTurnId;
+    const currentScrollTop = isSameTurn ? this.getCurrentScrollTop() : 0;
+    const historyScrollTop = this.getHistoryScrollTop();
+    if (!isSameTurn) {
       this.startTurn(currentEntry.turn.id);
     }
 
-    const historyScrollTop = this.getHistoryScrollTop();
     const historyEntries = entries.slice(0, -1).reverse();
     this.host.style.display = "block";
     this.host.className = this.collapsed && !this.historyVisible ? "current-collapsed" : "";
@@ -70,6 +72,7 @@ export class ToolActivityOverlay {
       ...(this.historyVisible ? [this.createHistoryPanel(historyEntries)] : []),
       this.panel
     );
+    this.restoreCurrentScrollTop(currentScrollTop);
     this.restoreHistoryScrollTop(historyScrollTop);
     this.syncTicker(snapshot.items.some((item) => item.status === "executing"));
     this.dragController.scheduleClamp();
@@ -209,9 +212,20 @@ export class ToolActivityOverlay {
     }
   }
 
+  private getCurrentScrollTop(): number {
+    if (this.collapsed) {return 0;}
+    return this.panel.querySelector<HTMLElement>(".list")?.scrollTop ?? 0;
+  }
+
   private getHistoryScrollTop(): number {
     if (!this.historyVisible) {return 0;}
     return this.stack.querySelector<HTMLElement>(".history-list")?.scrollTop ?? 0;
+  }
+
+  private restoreCurrentScrollTop(scrollTop: number): void {
+    if (this.collapsed) {return;}
+    const list = this.panel.querySelector<HTMLElement>(".list");
+    if (list) {list.scrollTop = scrollTop;}
   }
 
   private restoreHistoryScrollTop(scrollTop: number): void {
@@ -271,10 +285,16 @@ function createActivityRow(item: ToolActivityItem): HTMLElement {
   const name = document.createElement("span");
   name.className = "tool-name";
   name.textContent = item.toolName;
+  const source = document.createElement("span");
+  source.className = `source-badge ${item.source}`;
+  source.textContent = t(item.source === "network" ? "activity_source_network" : "activity_source_dom");
+  const toolIdentity = document.createElement("div");
+  toolIdentity.className = "tool-identity";
+  toolIdentity.append(name, source);
   const status = document.createElement("span");
   status.className = "status";
   status.textContent = getItemStatusText(item);
-  top.append(name, status);
+  top.append(toolIdentity, status);
   content.appendChild(top);
 
   if (item.purpose) {content.appendChild(createTextLine("purpose", item.purpose));}

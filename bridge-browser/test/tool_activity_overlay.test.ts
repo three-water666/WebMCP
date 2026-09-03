@@ -1,4 +1,7 @@
-import { ToolActivityTracker } from "../src/content/tool_activity";
+import {
+  ToolActivityTracker,
+  type ToolActivitySource,
+} from "../src/content/tool_activity";
 
 type OverlayConstructor = new (tracker: ToolActivityTracker) => unknown;
 
@@ -186,6 +189,9 @@ async function main(): Promise<void> {
   runTest("a new turn stays current while the prior turn enters detailed history", () => {
     testNewTurnUpdatesHistory(ToolActivityOverlay);
   });
+  runTest("current and historical tools show their capture source", () => {
+    testCaptureSourceBadges(ToolActivityOverlay);
+  });
   runTest("dragging moves the activity stack without losing viewport access", () => {
     testUnifiedBoundedDragging(ToolActivityOverlay);
   });
@@ -207,9 +213,12 @@ function testDetailedHistoryBlock(Overlay: OverlayConstructor): void {
   assertIncludes(historyPanel.getText(), "Run read_file", "history omitted the tool purpose");
   assertIncludes(harness.panel.getText(), "Running", "current status was not kept visible");
 
+  const currentBeforeUpdate = getRequired(harness.panel, ".list");
+  currentBeforeUpdate.scrollTop = 67;
   const historyBeforeUpdate = getRequired(harness.stack, ".history-list");
   historyBeforeUpdate.scrollTop = 41;
   harness.tracker.updateStatus({ requestKey: currentKey }, "awaiting_approval");
+  assertEqual(getRequired(harness.panel, ".list").scrollTop, 67, "live update reset current scroll");
   assertEqual(getRequired(harness.stack, ".history-list").scrollTop, 41, "live update reset history scroll");
   assertIncludes(harness.panel.getText(), "Approval", "current approval state did not update");
 
@@ -257,6 +266,22 @@ function testUnifiedBoundedDragging(Overlay: OverlayConstructor): void {
   assert(resizedRect.top >= 8 && resizedRect.bottom <= 392, "resize left the stack outside vertical bounds");
 }
 
+function testCaptureSourceBadges(Overlay: OverlayConstructor): void {
+  const harness = createHarness(Overlay);
+  const domKey = captureTurn(harness.tracker, "turn-1", "read_file", "dom");
+  settleTurn(harness.tracker, domKey);
+  captureTurn(harness.tracker, "turn-2", "write_file", "network");
+
+  const currentBadge = getRequired(harness.panel, ".source-badge");
+  assertEqual(currentBadge.getText(), "Network", "current network source badge was missing");
+  assert(currentBadge.className.includes("network"), "network source badge styling was missing");
+
+  getRequired(harness.panel, ".history-button").click();
+  const historyBadge = getRequired(harness.stack, ".history-panel").querySelector<FakeElement>(".source-badge");
+  assert(historyBadge, "historical DOM source badge was missing");
+  assertEqual(historyBadge.getText(), "DOM", "historical DOM source badge had the wrong label");
+}
+
 function createHarness(Overlay: OverlayConstructor): {
   host: FakeElement;
   panel: FakeElement;
@@ -276,11 +301,17 @@ function createHarness(Overlay: OverlayConstructor): {
   return { host, panel, stack, tracker };
 }
 
-function captureTurn(tracker: ToolActivityTracker, turnId: string, toolName: string): string {
+function captureTurn(
+  tracker: ToolActivityTracker,
+  turnId: string,
+  toolName: string,
+  source: ToolActivitySource = "dom"
+): string {
   const requestKey = `request:${turnId}`;
   tracker.capture({
     identity: { requestKey },
     payload: { name: toolName, purpose: `Run ${toolName}` },
+    source,
     turnId,
   });
   return requestKey;

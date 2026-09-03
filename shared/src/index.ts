@@ -3,6 +3,7 @@
 import brandConfig from './branding.json';
 
 export * from './chatgptStream';
+export * from './deepseekStream';
 export * from './networkCapture';
 export * from './sse';
 

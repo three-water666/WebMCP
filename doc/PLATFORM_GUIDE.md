@@ -244,7 +244,7 @@ selectors 建议：
 
 ## 网络响应捕获
 
-网络捕获与现有 DOM 扫描并行。当前内置 ChatGPT 配置会匹配
+网络捕获与现有 DOM 扫描并行。内置 ChatGPT 配置会匹配
 `POST https://chatgpt.com/backend-api/f/conversation` 的 EventStream，并使用
 `chatgpt-delta-v1` adapter 重建 `commentary` 消息：
 
@@ -264,19 +264,25 @@ selectors 建议：
 }
 ```
 
+内置 DeepSeek 配置使用 `xhr-sse` 监听
+`POST https://chat.deepseek.com/api/v0/chat/completion`，再由 `deepseek-chat-v0` adapter
+重建正文 `RESPONSE` fragment。`THINK` fragment 始终被排除，避免执行思考过程中提到、
+随后可能在正文中再次输出的工具调用。
+
 运行规则：
 
-- 页面主世界脚本在 `document_start` 包装 `window.fetch`，返回给网站的原始 `Response` 不变，
-  扩展只读取 clone。
+- 页面主世界脚本在 `document_start` 包装 `window.fetch` 和 `XMLHttpRequest`。fetch 路径返回给网站的
+  原始 `Response` 不变并只读取 clone；XHR 路径只增量读取原有 `responseText`。
 - 仅匹配配置的 URL、HTTP method 和 `text/event-stream` 响应；URL query 不参与匹配。
 - adapter 会跨 SSE chunk 重建增量消息，因此工具调用 JSON 即使被拆到多个 chunk 也能识别。
 - 整个响应成功结束并收到流完成标记后，才会提交其中的工具调用；不完整、失败或已移除的消息会丢弃。
 - 网络回合开始后会暂时抑制同一回合的 DOM 捕获，避免重复执行；网络捕获未命中或失败时继续使用 DOM 兜底。
 - 页面和隔离的 content script 之间使用每页随机 token 关联并过滤消息，只传递提取出的工具调用 JSON 候选。
-- 原始 EventStream、隐藏 commentary 正文、请求头和凭据不会传给 content script 或 Gateway，也不会写入存储。
+- 原始 EventStream、隐藏的 commentary/思考正文、请求头和凭据不会传给 content script 或 Gateway，
+  也不会写入存储。
 
 `capture` 是声明式配置，不是通用网络脚本。新增协议时，需要先在浏览器扩展中实现并发布 adapter，
-再把该 adapter 名称写入平台配置。内置 ChatGPT 网络捕获可以通过下面的覆盖临时关闭：
+再把该 adapter 名称写入平台配置。内置网络捕获可以通过站点 id 覆盖临时关闭，例如：
 
 ```json
 {
