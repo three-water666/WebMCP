@@ -106,7 +106,8 @@
                   "transport": {
                     "type": "string",
                     "enum": [
-                      "fetch-sse"
+                      "fetch-sse",
+                      "xhr-sse"
                     ]
                   },
                   "method": {
@@ -123,7 +124,8 @@
                   "adapter": {
                     "type": "string",
                     "enum": [
-                      "chatgpt-delta-v1"
+                      "chatgpt-delta-v1",
+                      "deepseek-chat-v0"
                     ]
                   },
                   "channels": {

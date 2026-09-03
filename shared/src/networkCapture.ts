@@ -1,6 +1,6 @@
-export const NETWORK_CAPTURE_ADAPTERS = ["chatgpt-delta-v1"] as const;
+export const NETWORK_CAPTURE_ADAPTERS = ["chatgpt-delta-v1", "deepseek-chat-v0"] as const;
 export const NETWORK_CAPTURE_STRATEGIES = ["network-preferred"] as const;
-export const NETWORK_CAPTURE_TRANSPORTS = ["fetch-sse"] as const;
+export const NETWORK_CAPTURE_TRANSPORTS = ["fetch-sse", "xhr-sse"] as const;
 export const NETWORK_CAPTURE_METHODS = ["GET", "POST"] as const;
 
 export type NetworkCaptureAdapter = typeof NETWORK_CAPTURE_ADAPTERS[number];
