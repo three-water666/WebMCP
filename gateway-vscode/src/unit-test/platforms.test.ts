@@ -18,6 +18,13 @@ suite('platform registry', () => {
         assert.strictEqual(chatgpt.capture?.adapter, 'chatgpt-delta-v1');
         assert.strictEqual(chatgpt.capture?.url, 'https://chatgpt.com/backend-api/f/conversation');
         assert.strictEqual(typeof chatgpt.selectors.inputArea, 'string');
+
+        const deepseek = findAiSiteById(sites, 'deepseek');
+        assert.ok(deepseek);
+        assert.strictEqual(deepseek.capture?.adapter, 'deepseek-chat-v0');
+        assert.deepStrictEqual(deepseek.capture?.channels, ['response']);
+        assert.strictEqual(deepseek.capture?.transport, 'xhr-sse');
+        assert.strictEqual(deepseek.capture?.url, 'https://chat.deepseek.com/api/v0/chat/completion');
     });
 
     test('uses Qwen selectors that prefer the first comparison response', () => {

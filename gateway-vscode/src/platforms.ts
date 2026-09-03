@@ -90,6 +90,15 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
         name: 'DeepSeek',
         address: 'https://chat.deepseek.com',
         showQuickLaunch: true,
+        capture: {
+            adapter: 'deepseek-chat-v0',
+            channels: ['response'],
+            enabled: true,
+            method: 'POST',
+            strategy: 'network-preferred',
+            transport: 'xhr-sse',
+            url: 'https://chat.deepseek.com/api/v0/chat/completion'
+        },
         selectors: {
             messageBlocks: '.ds-message',
             codeBlocks: '.ds-markdown.ds-assistant-message-main-content pre',

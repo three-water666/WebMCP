@@ -124,6 +124,7 @@ export class NetworkToolCallController {
       this.options.toolActivityTracker.capture({
         identity,
         payload,
+        source: "network",
         turnId: activityTurnId,
       });
       if (!this.options.requestRegistry.hasSeen(identity.requestKey)) {
@@ -144,6 +145,7 @@ export class NetworkToolCallController {
       this.options.toolActivityTracker.captureProtocolError({
         identity,
         message: getErrorMessage(error),
+        source: "network",
         turnId: activityTurnId,
       });
       return identity;

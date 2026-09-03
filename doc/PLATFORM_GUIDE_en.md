@@ -230,10 +230,16 @@ This path requires Chromium 111 or later for the static `MAIN`-world content scr
 }
 ```
 
+The built-in DeepSeek configuration uses `xhr-sse` for
+`POST https://chat.deepseek.com/api/v0/chat/completion`. Its `deepseek-chat-v0` adapter reconstructs only
+visible `RESPONSE` fragments. It always excludes `THINK` fragments so a tool call mentioned during reasoning
+cannot execute before the model potentially emits it again in the final response.
+
 Runtime rules:
 
-- A main-world script wraps `window.fetch` at `document_start`. The site receives the untouched original
-  `Response`; the extension reads only a clone.
+- A main-world script wraps `window.fetch` and `XMLHttpRequest` at `document_start`. The fetch path leaves the
+  original `Response` untouched and reads only a clone; the XHR path incrementally reads the existing
+  `responseText`.
 - Only the configured URL, HTTP method, and `text/event-stream` responses match. URL query parameters are
   ignored during matching.
 - The adapter reconstructs deltas across SSE chunks, including tool-call JSON split across chunks.
@@ -243,12 +249,12 @@ Runtime rules:
   or capture failure falls back to the DOM path.
 - A per-page random token correlates and filters messages between the page and isolated content script. Only
   extracted tool-call JSON candidates cross that boundary.
-- Raw streams, hidden commentary text, request headers, and credentials are not sent to the content script or
-  gateway and are not persisted.
+- Raw streams, hidden commentary/reasoning text, request headers, and credentials are not sent to the content
+  script or gateway and are not persisted.
 
 `capture` is declarative rather than a general network script. Supporting another stream protocol requires
 shipping an adapter in the browser extension before selecting its name in platform configuration. Disable
-the built-in ChatGPT capture temporarily with this override:
+a built-in capture temporarily by overriding its site id, for example:
 
 ```json
 {
