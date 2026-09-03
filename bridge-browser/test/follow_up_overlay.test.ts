@@ -1,5 +1,4 @@
 import { FollowUpQueue } from "../src/content/follow_up_queue";
-import { ToolActivityTracker } from "../src/content/tool_activity";
 
 interface FakeRect {
   height: number;
@@ -195,33 +194,64 @@ const fakeWindow = new FakeWindow();
 async function main(): Promise<void> {
   installBrowserGlobals();
   const { FollowUpOverlay } = await import("../src/content/follow_up_overlay");
-  runTest("drafts stay isolated until confirmation and disappear after delivery", () => {
+  runTest("waiting follow-ups remain visible and removable until delivery starts", () => {
     const harness = createHarness(FollowUpOverlay);
-    harness.overlay.setGenerating(true);
+    harness.overlay.setEnabled(true);
+    getRequired(harness.host.shadowRoot!, ".launcher").click();
     const textarea = getRequired(harness.host.shadowRoot!, "textarea");
     textarea.value = "unfinished draft";
     assertEqual(harness.queue.beginDelivery().messages.length, 0, "unfinished draft entered delivery");
 
     confirmDraft(harness.host, textarea);
-    textarea.value = "second detail";
+    assertIncludes(getRequired(harness.host.shadowRoot!, ".queue").getText(), "unfinished draft", "confirmed message was hidden");
+    getRequired(harness.host.shadowRoot!, ".remove").click();
+    assertEqual(harness.queue.beginDelivery().messages.length, 0, "removed message remained queued");
+
+    textarea.value = "send this next";
     confirmDraft(harness.host, textarea);
     const delivery = harness.queue.beginDelivery();
-    assertEqual(delivery.messages.join("|"), "unfinished draft|second detail", "confirmed text changed");
-    assertIncludes(getRequired(harness.host.shadowRoot!, ".queue").getText(), "unfinished draft", "queue hid a confirmed message");
+    assertEqual(delivery.messages.join("|"), "send this next", "confirmed text changed");
+    assert(!getRequired(harness.host.shadowRoot!, ".queue").querySelector(".remove"), "sending message could still be removed");
 
     harness.queue.completeDelivery(delivery.ids);
     assert(!getRequired(harness.host.shadowRoot!, ".queue").getText(), "delivered messages remained visible");
+    assertEqual(harness.host.className, "", "empty composer did not collapse after delivery");
+    assertEqual(harness.host.style.display, "block", "persistent launcher disappeared after delivery");
   });
-  runTest("composer only appears during work and dragging stays in the viewport", () => {
+  runTest("compact launcher stays visible and opens the composer", () => {
     const harness = createHarness(FollowUpOverlay);
-    assertEqual(harness.host.style.display, "none", "idle composer was visible");
-    harness.overlay.setGenerating(true);
-    assertEqual(harness.host.style.display, "block", "generation did not show composer");
-    harness.overlay.setGenerating(false);
-    assertEqual(harness.host.style.display, "none", "idle composer stayed visible");
+    assertEqual(harness.host.style.display, "none", "disabled launcher was visible");
+    harness.overlay.setEnabled(true);
+    assertEqual(harness.host.style.display, "block", "idle launcher was hidden");
 
-    captureTool(harness.tracker);
-    assertEqual(harness.host.style.display, "block", "tool work did not show composer");
+    getRequired(harness.host.shadowRoot!, ".launcher").click();
+    assertEqual(harness.host.className, "webcode-follow-up-expanded", "launcher did not open the composer");
+    assertEqual(fakeDocument.activeElement, getRequired(harness.host.shadowRoot!, "textarea"), "composer did not focus its input");
+
+    getRequired(harness.host.shadowRoot!, ".collapse").click();
+    assertEqual(harness.host.className, "", "composer did not collapse to its launcher");
+  });
+  runTest("collapsed launcher can be dragged without opening the composer", () => {
+    const harness = createHarness(FollowUpOverlay);
+    harness.overlay.setEnabled(true);
+    harness.host.setRect({ height: 42, left: 20, top: 638, width: 150 });
+    const launcher = getRequired(harness.host.shadowRoot!, ".launcher");
+
+    launcher.mouseDown(createEvent(launcher, 30, 650));
+    fakeWindow.dispatch("mousemove", createEvent(launcher, 230, 450));
+    fakeWindow.dispatch("mouseup", createEvent(launcher, 230, 450));
+    launcher.click();
+
+    assertEqual(harness.host.style.left, "220px", "collapsed launcher did not move");
+    assertEqual(harness.host.className, "", "dragging the launcher opened the composer");
+    launcher.click();
+    assertEqual(harness.host.className, "webcode-follow-up-expanded", "launcher did not open after dragging");
+  });
+  runTest("expanded composer stays inside the viewport when dragged", () => {
+    const harness = createHarness(FollowUpOverlay);
+    harness.overlay.setEnabled(true);
+    getRequired(harness.host.shadowRoot!, ".launcher").click();
+
     const header = getRequired(harness.host.shadowRoot!, ".header");
     header.mouseDown(createEvent(header, 20, 420));
     fakeWindow.dispatch("mousemove", createEvent(header, -1000, -1000));
@@ -232,43 +262,31 @@ async function main(): Promise<void> {
 }
 
 interface OverlayInstance {
-  setGenerating: (generating: boolean) => void;
+  setEnabled: (enabled: boolean) => void;
 }
 
 type OverlayConstructor = new (
-  queue: FollowUpQueue,
-  tracker: ToolActivityTracker
+  queue: FollowUpQueue
 ) => OverlayInstance;
 
 function createHarness(Overlay: OverlayConstructor): {
   host: FakeElement;
   overlay: OverlayInstance;
   queue: FollowUpQueue;
-  tracker: ToolActivityTracker;
 } {
   fakeDocument.reset();
   fakeWindow.reset();
   const queue = new FollowUpQueue();
-  const tracker = new ToolActivityTracker();
-  const overlay = new Overlay(queue, tracker);
+  const overlay = new Overlay(queue);
   const host = fakeDocument.body.children.at(-1);
   assert(host?.shadowRoot, "follow-up overlay was not created");
   host.setRect({ height: 260, left: 20, top: 420, width: 350 });
-  return { host, overlay, queue, tracker };
+  return { host, overlay, queue };
 }
 
 function confirmDraft(host: FakeElement, textarea: FakeElement): void {
   textarea.dispatch("input", createEvent(textarea));
   getRequired(host.shadowRoot!, ".confirm").click();
-}
-
-function captureTool(tracker: ToolActivityTracker): void {
-  tracker.capture({
-    identity: { requestKey: "follow-up-tool" },
-    payload: { name: "read_file", purpose: "Read context" },
-    source: "dom",
-    turnId: "follow-up-turn",
-  });
 }
 
 function createEvent(target: FakeElement, clientX = 0, clientY = 0): FakeEvent {

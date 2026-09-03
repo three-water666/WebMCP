@@ -294,7 +294,7 @@ const resultDelivery = new ResultDeliveryController({
   toolActivityTracker,
 });
 
-const followUpWork = new FollowUpWorkController(followUpQueue, toolActivityTracker, () => {
+const followUpWork = new FollowUpWorkController(followUpQueue, () => {
   if (DOM && !networkCapture.hasPendingTurns()) {
     resultDelivery.deliverFollowUps(DOM);
   }

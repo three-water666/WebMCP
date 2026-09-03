@@ -8,6 +8,7 @@ import {
   isStopButtonVisible,
 } from "./page_selectors";
 import { isElementVisible } from "./dom_helpers";
+import { preserveActiveElement } from "./focus_preservation";
 import { showUserAttentionNotification } from "./user_attention";
 import { getAutoSendAction, getAutoSendAttemptLimit } from "./auto_send_policy";
 
@@ -115,7 +116,6 @@ export function triggerAutoSend(
 
     const trySend = () => {
       const inputEl = getInputEl();
-      if (inputEl) {inputEl.focus();}
 
       if (isSendComplete()) {
         Logger.log(t("send_success_cleared"), "success");
@@ -123,7 +123,7 @@ export function triggerAutoSend(
         return;
       }
 
-      dispatchSendAttempt(inputEl, domSelectors, retryCount);
+      preserveActiveElement(() => dispatchSendAttempt(inputEl, domSelectors, retryCount));
       // 等待页面完成输入框清空、stop 按钮切换等异步渲染；下一轮才尝试另一种发送方式。
       schedule(() => {
         if (isSendComplete()) {

@@ -3,50 +3,52 @@ import { t } from "../modules/i18n";
 import { FloatingPanelDragController } from "./floating_panel_drag";
 import { type FollowUpItem, type FollowUpQueue, type FollowUpQueueSnapshot } from "./follow_up_queue";
 import { FOLLOW_UP_OVERLAY_STYLE_TEXT } from "./follow_up_overlay_styles";
-import { isTurnSettled } from "./tool_activity_overlay_view";
-import { type ToolActivitySnapshot, type ToolActivityTracker } from "./tool_activity";
 
-/** Floating composer for follow-ups that are safe to include in the next automatic turn. */
+/** Persistent compact launcher and composer for next-turn follow-ups. */
 export class FollowUpOverlay {
-  private enabled = true;
+  private readonly collapseButton: HTMLButtonElement;
   private readonly confirmButton: HTMLButtonElement;
   private readonly dragController: FloatingPanelDragController;
-  private generating = false;
+  private enabled = false;
   private readonly host: HTMLDivElement;
+  private readonly launcher: HTMLButtonElement;
+  private readonly launcherCount: HTMLSpanElement;
   private readonly queueElement: HTMLDivElement;
   private queueSending = false;
   private readonly queue: FollowUpQueue;
   private readonly summary: HTMLDivElement;
-  private toolWorking = false;
   private readonly textarea: HTMLTextAreaElement;
 
-  public constructor(queue: FollowUpQueue, tracker: ToolActivityTracker) {
+  public constructor(queue: FollowUpQueue) {
     this.queue = queue;
     const view = createOverlayView();
     this.host = view.host;
+    this.launcher = view.launcher;
+    this.launcherCount = view.launcherCount;
     this.queueElement = view.queueElement;
     this.summary = view.summary;
     this.textarea = view.textarea;
+    this.collapseButton = view.collapseButton;
     this.confirmButton = view.confirmButton;
 
     this.dragController = new FloatingPanelDragController(this.host);
     this.dragController.bindHandle(view.header);
+    this.dragController.bindHandle(view.launcher, true);
     this.bindComposer();
     queue.subscribe((snapshot) => this.renderQueue(snapshot));
-    tracker.subscribe((snapshot) => this.updateToolWorking(snapshot));
-  }
-
-  public setGenerating(generating: boolean): void {
-    this.generating = generating;
-    this.syncVisibility();
   }
 
   public setEnabled(enabled: boolean): void {
     this.enabled = enabled;
+    if (!enabled) {this.setExpanded(false);}
     this.syncVisibility();
   }
 
   private bindComposer(): void {
+    this.launcher.onclick = () => {
+      if (!this.dragController.consumeDragClick()) {this.setExpanded(true);}
+    };
+    this.collapseButton.onclick = () => this.setExpanded(false);
     this.confirmButton.onclick = () => this.confirmDraft();
     this.textarea.addEventListener("input", () => this.syncConfirmButton());
     this.textarea.addEventListener("keydown", (event) => {
@@ -61,6 +63,13 @@ export class FollowUpOverlay {
     this.syncConfirmButton();
   }
 
+  private setExpanded(expanded: boolean): void {
+    this.host.className = expanded ? "webcode-follow-up-expanded" : "";
+    this.launcher.setAttribute("aria-expanded", String(expanded));
+    if (expanded) {this.textarea.focus();}
+    this.dragController.scheduleClamp();
+  }
+
   private confirmDraft(): void {
     if (!this.queue.confirm(this.textarea.value)) {return;}
     this.textarea.value = "";
@@ -69,17 +78,23 @@ export class FollowUpOverlay {
   }
 
   private renderQueue(snapshot: FollowUpQueueSnapshot): void {
+    const wasSending = this.queueSending;
     this.queueElement.replaceChildren(...snapshot.items.map((item) => this.createQueueItem(item)));
     const sendingCount = snapshot.items.filter((item) => item.status === "sending").length;
     this.queueSending = sendingCount > 0;
     this.summary.textContent = sendingCount > 0
       ? t("follow_up_sending")
-      : t("follow_up_description");
+      : snapshot.items.length > 0
+        ? t("follow_up_waiting")
+        : t("follow_up_description");
     const count = this.host.shadowRoot?.querySelector<HTMLElement>(".count");
     if (count) {
       count.textContent = String(snapshot.items.length);
       count.style.display = snapshot.items.length > 0 ? "block" : "none";
     }
+    this.launcherCount.textContent = String(snapshot.items.length);
+    this.launcherCount.style.display = snapshot.items.length > 0 ? "inline-flex" : "none";
+    if (wasSending && snapshot.items.length === 0) {this.setExpanded(false);}
     this.syncVisibility();
     this.dragController.scheduleClamp();
   }
@@ -90,14 +105,19 @@ export class FollowUpOverlay {
     const text = document.createElement("div");
     text.className = "item-text";
     text.textContent = item.text;
-    row.appendChild(text);
+    const actions = document.createElement("div");
+    actions.className = "item-actions";
+    row.append(text, actions);
 
     if (item.status === "sending") {
       const state = document.createElement("span");
       state.className = "item-state";
       state.textContent = t("follow_up_sending_short");
-      row.appendChild(state);
+      actions.appendChild(state);
     } else {
+      const state = document.createElement("span");
+      state.className = "item-state waiting";
+      state.textContent = t("follow_up_waiting_short");
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "remove";
@@ -105,15 +125,9 @@ export class FollowUpOverlay {
       remove.setAttribute("aria-label", remove.title);
       remove.textContent = "×";
       remove.onclick = () => this.queue.remove(item.id);
-      row.appendChild(remove);
+      actions.append(state, remove);
     }
     return row;
-  }
-
-  private updateToolWorking(snapshot: ToolActivitySnapshot): void {
-    const currentTurn = snapshot.turns.at(-1);
-    this.toolWorking = Boolean(currentTurn && !isTurnSettled(currentTurn));
-    this.syncVisibility();
   }
 
   private syncConfirmButton(): void {
@@ -121,15 +135,17 @@ export class FollowUpOverlay {
   }
 
   private syncVisibility(): void {
-    const working = this.generating || this.toolWorking || this.queueSending;
-    this.host.style.display = this.enabled && working ? "block" : "none";
+    this.host.style.display = this.enabled ? "block" : "none";
   }
 }
 
 function createOverlayView(): {
+  collapseButton: HTMLButtonElement;
   confirmButton: HTMLButtonElement;
   header: HTMLDivElement;
   host: HTMLDivElement;
+  launcher: HTMLButtonElement;
+  launcherCount: HTMLSpanElement;
   queueElement: HTMLDivElement;
   summary: HTMLDivElement;
   textarea: HTMLTextAreaElement;
@@ -139,6 +155,8 @@ function createOverlayView(): {
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = FOLLOW_UP_OVERLAY_STYLE_TEXT;
+
+  const { launcher, launcherCount } = createLauncherView();
 
   const panel = document.createElement("section");
   panel.className = "panel";
@@ -156,8 +174,14 @@ function createOverlayView(): {
   const count = document.createElement("span");
   count.className = "count";
   count.style.display = "none";
+  const collapseButton = document.createElement("button");
+  collapseButton.type = "button";
+  collapseButton.className = "collapse";
+  collapseButton.title = t("follow_up_collapse");
+  collapseButton.setAttribute("aria-label", collapseButton.title);
+  collapseButton.textContent = "−";
   heading.append(title, summary);
-  header.append(heading, count);
+  header.append(heading, count, collapseButton);
 
   const body = document.createElement("div");
   body.className = "body";
@@ -181,7 +205,40 @@ function createOverlayView(): {
   composer.append(textarea, footer);
   body.append(queueElement, composer);
   panel.append(header, body);
-  shadow.append(style, panel);
+  shadow.append(style, launcher, panel);
   document.body.appendChild(host);
-  return { confirmButton, header, host, queueElement, summary, textarea };
+  return {
+    collapseButton,
+    confirmButton,
+    header,
+    host,
+    launcher,
+    launcherCount,
+    queueElement,
+    summary,
+    textarea,
+  };
+}
+
+function createLauncherView(): {
+  launcher: HTMLButtonElement;
+  launcherCount: HTMLSpanElement;
+} {
+  const launcher = document.createElement("button");
+  launcher.type = "button";
+  launcher.className = "launcher";
+  launcher.title = t("follow_up_open");
+  launcher.setAttribute("aria-label", launcher.title);
+  launcher.setAttribute("aria-expanded", "false");
+  const mark = document.createElement("span");
+  mark.className = "launcher-mark";
+  mark.textContent = "+";
+  const label = document.createElement("span");
+  label.className = "launcher-label";
+  label.textContent = t("follow_up_title");
+  const launcherCount = document.createElement("span");
+  launcherCount.className = "launcher-count";
+  launcherCount.style.display = "none";
+  launcher.append(mark, label, launcherCount);
+  return { launcher, launcherCount };
 }

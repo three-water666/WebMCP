@@ -2,7 +2,12 @@ import type { SiteSelectors } from "../src/modules/config";
 
 export {};
 
-class FakeInput {
+interface FakeFocusable {
+  focus: () => void;
+  shadowRoot?: { activeElement: FakeFocusable | null };
+}
+
+class FakeInput implements FakeFocusable {
   public innerText = "";
 
   public contains(): boolean {
@@ -19,10 +24,28 @@ class FakeInput {
   public focus(): void {
     fakeDocument.activeElement = this;
   }
+
+  public getBoundingClientRect(): DOMRect {
+    return {
+      bottom: 40,
+      height: 40,
+      left: 0,
+      right: 300,
+      top: 0,
+      width: 300,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
+  }
 }
 
 const input = new FakeInput();
-const fakeDocument = {
+const fakeDocument: {
+  activeElement: FakeFocusable | null;
+  querySelector: () => null;
+  querySelectorAll: (selector: string) => FakeInput[];
+} = {
   activeElement: input,
   querySelector: () => null,
   querySelectorAll: (selector: string) => selector === "#input" ? [input] : [],
@@ -42,9 +65,16 @@ async function main(): Promise<void> {
   installBrowserGlobals();
   const { cancelAutoSend, triggerAutoSend } = await import("../src/modules/auto_send");
 
+  const followUpInput = new FakeInput();
+  const followUpHost: FakeFocusable = {
+    focus: () => {fakeDocument.activeElement = followUpHost;},
+    shadowRoot: { activeElement: followUpInput },
+  };
+  fakeDocument.activeElement = followUpHost;
   input.innerText = "message";
   const successfulSend = triggerAutoSend({ autoSend: true, hasFileUpload: false }, SELECTORS);
   flushNextTimer();
+  assertEqual(fakeDocument.activeElement, followUpInput, "auto-send did not restore follow-up input focus");
   flushNextTimer();
   assertEqual(await successfulSend, "sent", "successful send did not resolve as sent");
 
