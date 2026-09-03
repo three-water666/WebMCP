@@ -83,6 +83,22 @@ const I18N_MESSAGES: Record<string, { en: string; zh: string }> = {
   activity_no_history: { en: "No previous tool activity", zh: "暂无之前的工具活动" },
   activity_drag: { en: "Drag tool activity window", zh: "拖动工具活动窗口" },
 
+  follow_up_title: { en: "Next-turn follow-up", zh: "下一轮补充" },
+  follow_up_description: {
+    en: "Only confirmed messages will be sent when this work finishes",
+    zh: "仅已确认的内容会在本轮工作结束后发送",
+  },
+  follow_up_placeholder: {
+    en: "Add context without touching the active chat input...",
+    zh: "在这里补充信息，不影响当前聊天输入框...",
+  },
+  follow_up_shortcut: { en: "Ctrl/⌘ + Enter to confirm", zh: "Ctrl/⌘ + Enter 确认" },
+  follow_up_confirm: { en: "Confirm", zh: "确认加入" },
+  follow_up_remove: { en: "Remove confirmed follow-up", zh: "移除已确认的补充" },
+  follow_up_sending: { en: "Sending confirmed follow-ups...", zh: "正在发送已确认的补充..." },
+  follow_up_sending_short: { en: "Sending", zh: "发送中" },
+  follow_up_delivery_heading: { en: "User follow-up", zh: "用户补充" },
+
   hitl_title: { en: "Approval Required", zh: "请求执行工具" },
   label_tool: { en: "Tool Name", zh: "工具名称" },
   label_purpose: { en: "Purpose", zh: "操作意图" },

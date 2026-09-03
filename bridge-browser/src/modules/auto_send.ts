@@ -10,8 +10,15 @@ import {
 import { isElementVisible } from "./dom_helpers";
 import { showUserAttentionNotification } from "./user_attention";
 
-let autoSendTimer: NodeJS.Timeout | null = null;
 type AutoSendAction = "ctrl-enter" | "enter" | "button";
+export type AutoSendResult = "cancelled" | "disabled" | "failed" | "sent";
+
+interface ActiveAutoSend {
+  cancel: (shouldLog: boolean) => void;
+  timer: NodeJS.Timeout | null;
+}
+
+let activeAutoSend: ActiveAutoSend | null = null;
 
 const AUTO_SEND_INITIAL_DELAY_MS = 350;
 const AUTO_SEND_SETTLE_MS = 1200;
@@ -29,11 +36,7 @@ const AUTO_SEND_ACTIONS: AutoSendAction[] = [
  * @description 如果定时器存在，清除它并输出取消日志。主要用于当监听到用户手动输入或页面有新活动时，打断之前的自动发送操作。
  */
 export function cancelAutoSend() {
-  if (autoSendTimer) {
-    clearTimeout(autoSendTimer);
-    autoSendTimer = null;
-    Logger.log("🚫 Auto-send cancelled (New activity detected)", "warn");
-  }
+  activeAutoSend?.cancel(true);
 }
 
 // === 自动发送逻辑 ===
@@ -53,12 +56,9 @@ export function cancelAutoSend() {
 export function triggerAutoSend(
   config: { autoSend: boolean },
   domSelectors: SiteSelectors
-) {
-  if (!config.autoSend) {return;}
-  if (autoSendTimer) {
-    clearTimeout(autoSendTimer);
-    autoSendTimer = null;
-  }
+): Promise<AutoSendResult> {
+  if (!config.autoSend) {return Promise.resolve("disabled");}
+  activeAutoSend?.cancel(false);
 
   let retryCount = 0;
   const maxRetries = AUTO_SEND_ACTIONS.length;
@@ -79,73 +79,105 @@ export function triggerAutoSend(
     return isStopButtonVisible(domSelectors);
   };
 
-  const scheduleRetry = () => {
-    retryCount++;
-    if (retryCount < maxRetries) {
-      autoSendTimer = setTimeout(trySend, AUTO_SEND_RETRY_MS);
-    } else {
-      Logger.log(t("auto_send_timeout"), "error");
-      void showUserAttentionNotification({
-        title: "Auto-Send Failed",
-        message: "Could not send message.",
-      });
-    }
-  };
+  return new Promise((resolve) => {
+    let settled = false;
 
-  const trySend = () => {
-    autoSendTimer = null;
-    const inputEl = getInputEl();
-    if (inputEl) {inputEl.focus();}
-
-    if (isSendComplete()) {
-      Logger.log(t("send_success_cleared"), "success");
-      return;
-    }
-
-    if (inputEl) {
-      inputEl.dispatchEvent(new Event("input", { bubbles: true }));
-      inputEl.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-
-    const action = AUTO_SEND_ACTIONS[retryCount] ?? "enter";
-    if (action === "ctrl-enter" || action === "enter") {
-      if (inputEl) {
-        const withCtrl = action === "ctrl-enter";
-        triggerSingleEnter(inputEl, withCtrl);
-        Logger.log(`Auto-send fallback: ${withCtrl ? "Ctrl+Enter" : "Enter"} (${retryCount + 1})`, "action");
-      } else {
-        Logger.log(t("input_not_found"), "error");
+    const finish = (result: AutoSendResult, shouldLogCancellation = false) => {
+      if (settled) {return;}
+      settled = true;
+      if (activeAutoSend?.timer) {clearTimeout(activeAutoSend.timer);}
+      activeAutoSend = null;
+      if (shouldLogCancellation && result === "cancelled") {
+        Logger.log("🚫 Auto-send cancelled (New activity detected)", "warn");
       }
-    } else {
-      const btnNow = getSendButton(domSelectors);
-      if (isSendButtonReady(btnNow)) {
-        const isActuallyStopBtn = isSendButtonActuallyStopButton(domSelectors, btnNow);
-        if (!isActuallyStopBtn) {
-          triggerButtonSend(btnNow);
-          Logger.log(
-            `${t("auto_send_attempt")} (${retryCount + 1})`,
-            "action"
-          );
-        }
-      } else if (!btnNow) {
-        Logger.log(t("send_btn_missing"), "warn");
-      } else {
-        Logger.log(t("send_btn_disabled"), "warn");
-      }
-    }
+      resolve(result);
+    };
 
-    // 等待页面完成输入框清空、stop 按钮切换等异步渲染；下一轮才尝试另一种发送方式。
-    autoSendTimer = setTimeout(() => {
-      autoSendTimer = null;
+    const schedule = (callback: () => void, delayMs: number) => {
+      const timer = setTimeout(() => {
+        if (activeAutoSend?.timer === timer) {activeAutoSend.timer = null;}
+        callback();
+      }, delayMs);
+      if (activeAutoSend) {activeAutoSend.timer = timer;}
+    };
+
+    const scheduleRetry = () => {
+      retryCount++;
+      if (retryCount < maxRetries) {
+        schedule(trySend, AUTO_SEND_RETRY_MS);
+      } else {
+        Logger.log(t("auto_send_timeout"), "error");
+        void showUserAttentionNotification({
+          title: "Auto-Send Failed",
+          message: "Could not send message.",
+        });
+        finish("failed");
+      }
+    };
+
+    const trySend = () => {
+      const inputEl = getInputEl();
+      if (inputEl) {inputEl.focus();}
+
       if (isSendComplete()) {
         Logger.log(t("send_success_cleared"), "success");
+        finish("sent");
         return;
       }
 
-      scheduleRetry();
-    }, AUTO_SEND_SETTLE_MS);
-  };
-  autoSendTimer = setTimeout(trySend, AUTO_SEND_INITIAL_DELAY_MS);
+      dispatchSendAttempt(inputEl, domSelectors, retryCount);
+      // 等待页面完成输入框清空、stop 按钮切换等异步渲染；下一轮才尝试另一种发送方式。
+      schedule(() => {
+        if (isSendComplete()) {
+          Logger.log(t("send_success_cleared"), "success");
+          finish("sent");
+          return;
+        }
+        scheduleRetry();
+      }, AUTO_SEND_SETTLE_MS);
+    };
+
+    activeAutoSend = {
+      cancel: (shouldLog) => finish(isSendComplete() ? "sent" : "cancelled", shouldLog),
+      timer: null,
+    };
+    schedule(trySend, AUTO_SEND_INITIAL_DELAY_MS);
+  });
+}
+
+function dispatchSendAttempt(
+  inputEl: HTMLElement | null,
+  domSelectors: SiteSelectors,
+  retryCount: number
+): void {
+  if (inputEl) {
+    inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  const action = AUTO_SEND_ACTIONS[retryCount] ?? "enter";
+  if (action === "ctrl-enter" || action === "enter") {
+    if (!inputEl) {
+      Logger.log(t("input_not_found"), "error");
+      return;
+    }
+    const withCtrl = action === "ctrl-enter";
+    triggerSingleEnter(inputEl, withCtrl);
+    Logger.log(`Auto-send fallback: ${withCtrl ? "Ctrl+Enter" : "Enter"} (${retryCount + 1})`, "action");
+    return;
+  }
+
+  const btnNow = getSendButton(domSelectors);
+  if (isSendButtonReady(btnNow)) {
+    if (!isSendButtonActuallyStopButton(domSelectors, btnNow)) {
+      triggerButtonSend(btnNow);
+      Logger.log(`${t("auto_send_attempt")} (${retryCount + 1})`, "action");
+    }
+  } else if (!btnNow) {
+    Logger.log(t("send_btn_missing"), "warn");
+  } else {
+    Logger.log(t("send_btn_disabled"), "warn");
+  }
 }
 
 /**
