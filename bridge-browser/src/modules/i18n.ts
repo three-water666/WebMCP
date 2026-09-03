@@ -85,6 +85,10 @@ const I18N_MESSAGES: Record<string, { en: string; zh: string }> = {
   activity_source_dom: { en: "DOM", zh: "DOM" },
   activity_source_network: { en: "Network", zh: "网络" },
 
+  work_panel_title: { en: "Work panel", zh: "工作面板" },
+  work_panel_open: { en: "Open work panel", zh: "展开工作面板" },
+  work_panel_drag: { en: "Drag work panel", zh: "拖动工作面板" },
+
   follow_up_title: { en: "Next-turn follow-up", zh: "下一轮补充" },
   follow_up_description: {
     en: "Only confirmed messages will be sent when this work finishes",

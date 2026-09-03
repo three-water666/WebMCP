@@ -243,7 +243,7 @@ const toolActivityTracker = new ToolActivityTracker();
 const domToolActivity = new DomToolActivityController(toolActivityTracker);
 const domToolTurns = new DomToolTurnController(requestRegistry);
 const followUpQueue = new FollowUpQueue();
-new ToolActivityOverlay(toolActivityTracker);
+const workPanel = new ToolActivityOverlay(toolActivityTracker, followUpQueue);
 let lastProgressLogTime = 0, lastProgressStatus = "";
 
 // === 性能优化: MutationObserver 取代 setInterval ===
@@ -294,7 +294,7 @@ const resultDelivery = new ResultDeliveryController({
   toolActivityTracker,
 });
 
-const followUpWork = new FollowUpWorkController(followUpQueue, () => {
+const followUpWork = new FollowUpWorkController(workPanel, () => {
   if (DOM && !networkCapture.hasPendingTurns()) {
     resultDelivery.deliverFollowUps(DOM);
   }
