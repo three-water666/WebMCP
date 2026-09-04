@@ -8,7 +8,7 @@ const locale: Locale = vscode.env.language.toLowerCase().startsWith('zh') ? 'zh'
 const messages = {
     en: {
         output_channel_name: 'MCP Gateway',
-        auto_stop_message: `${BRANDING.serverName} stopped due to inactivity (30m).`,
+        auto_stop_message: `${BRANDING.serverName} stopped after {minutes} minutes without activity.`,
         start_failed: 'Failed to start MCP Gateway: {message}',
         start_requires_workspace: `Open a folder or workspace in VS Code before starting ${BRANDING.productName}.`,
         server_stopped: `${BRANDING.serverName} Stopped`,
@@ -86,7 +86,7 @@ const messages = {
     },
     zh: {
         output_channel_name: 'MCP Gateway',
-        auto_stop_message: `${BRANDING.productName} 服务因 30 分钟无活动已停止。`,
+        auto_stop_message: `${BRANDING.productName} 服务因 {minutes} 分钟无活动已停止。`,
         start_failed: '启动 MCP Gateway 失败：{message}',
         start_requires_workspace: `请先在 VS Code 中打开一个具体文件夹或工作区，再启动 ${BRANDING.productName}。`,
         server_stopped: `${BRANDING.productName} 服务已停止`,

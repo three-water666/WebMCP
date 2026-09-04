@@ -30,13 +30,9 @@ type ReadyHandshakeElements = {
 
 type HandshakeParams = {
   port: number;
-  token: string;
-  target: string;
-  siteId: string;
-  targetOrigin?: string;
+  bridgeCode: string;
   vscodeExtensionVersion: string;
   browserExtensionVersion: string;
-  workspaceId: string;
 };
 
 type ReadHandshakeParamsResult =
@@ -116,14 +112,16 @@ function getHandshakeElements(): HandshakeElements {
 function readHandshakeParams(): ReadHandshakeParamsResult {
   const params = new URLSearchParams(window.location.search);
   const bridgeData = readBridgeData();
-  const token = bridgeData.token;
-  const target = bridgeData.target ?? params.get("target");
-  const siteId = bridgeData.siteId ?? params.get("siteId");
+  const bridgeCode = params.get("bridgeCode");
   const vscodeExtensionVersion = bridgeData.vscodeExtensionVersion;
   const browserExtensionVersion = chrome.runtime.getManifest().version;
   const portStr = window.location.port;
 
-  if (!token || !target || !siteId || !portStr) {
+  if (bridgeCode) {
+    stripBridgeCodeFromAddressBar();
+  }
+
+  if (!bridgeCode || !portStr) {
     return { status: "invalid" };
   }
 
@@ -147,23 +145,15 @@ function readHandshakeParams(): ReadHandshakeParamsResult {
     status: "ready",
     params: {
       port: Number.parseInt(portStr, 10),
-      token,
-      target,
-      siteId,
-      targetOrigin: readTargetOrigin(target),
+      bridgeCode,
       vscodeExtensionVersion,
       browserExtensionVersion,
-      workspaceId: bridgeData.workspaceId ?? "global",
     },
   };
 }
 
-function readTargetOrigin(target: string): string | undefined {
-  try {
-    return new URL(target).origin;
-  } catch {
-    return undefined;
-  }
+function stripBridgeCodeFromAddressBar(): void {
+  window.history.replaceState(null, document.title, window.location.pathname);
 }
 
 function attemptHandshake(params: HandshakeParams, elements: HandshakeElements, force = false): void {
@@ -171,13 +161,9 @@ function attemptHandshake(params: HandshakeParams, elements: HandshakeElements, 
     {
       type: "HANDSHAKE",
       port: params.port,
-      token: params.token,
-      siteId: params.siteId,
-      targetOrigin: params.targetOrigin,
-      targetUrl: params.target,
+      bridgeCode: params.bridgeCode,
       vscodeExtensionVersion: params.vscodeExtensionVersion,
       browserExtensionVersion: params.browserExtensionVersion,
-      workspaceId: params.workspaceId,
       force,
     },
     (response: HandshakeResponse) => {
@@ -220,7 +206,11 @@ function handleHandshakeResponse(
   }
 
   if (response?.success) {
-    showConnected(params.target, elements);
+    if (!response.targetUrl) {
+      showConnectionFailed({ success: false, error: i18n.unknownError }, elements);
+      return;
+    }
+    showConnected(response.targetUrl, elements);
   } else if (response?.error === "BUSY") {
     showConnectionConflict(params, elements);
   } else {
@@ -300,7 +290,7 @@ function showConnectionFailed(response: HandshakeResponse, elements: ReadyHandsh
   elements.statusText.style.color = "#ff6b6b";
 }
 
-function readBridgeData(): Partial<Pick<HandshakeParams, "token" | "siteId" | "target" | "vscodeExtensionVersion" | "workspaceId">> {
+function readBridgeData(): Pick<Partial<HandshakeParams>, "vscodeExtensionVersion"> {
   const dataEl = document.getElementById("mcp-data");
   const rawData = dataEl?.textContent ?? "";
   try {
@@ -310,11 +300,7 @@ function readBridgeData(): Partial<Pick<HandshakeParams, "token" | "siteId" | "t
     }
 
     return {
-      token: readBridgeDataString(parsed, "token"),
-      siteId: readBridgeDataString(parsed, "siteId"),
-      target: readBridgeDataString(parsed, "target"),
       vscodeExtensionVersion: readBridgeDataString(parsed, "vscodeExtensionVersion"),
-      workspaceId: readBridgeDataString(parsed, "workspaceId"),
     };
   } catch {
   }

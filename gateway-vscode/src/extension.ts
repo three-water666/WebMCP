@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { registerGatewayConfigurationWatcher } from './extension/configurationWatcher';
-import { buildBridgeUrl } from './extension/browserLauncher';
+import { buildBridgeUrl } from './extension/bridgeUrl';
 import { registerGatewayConnectCommand } from './extension/connectCommand';
 import { registerCopyContextCommand } from './extension/copyContextCommand';
 import { registerIsolatedProfileCleanupCommand } from './extension/isolatedProfileCleanupCommand';
@@ -71,8 +71,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
         outputChannel,
         context.extensionPath,
         context,
-        () => {
-            runtime.serviceController?.markAutoStopped();
+        idleTimeoutMs => {
+            runtime.serviceController?.markAutoStopped(idleTimeoutMs);
         },
         createGatewayRuntimeTraceSinkFromEnvironment()
     );
@@ -98,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
 
     // 创建 VS Code 侧服务控制器。它把“启动网关需要读取哪些配置、保存端口、
     // 更新状态栏、展示启动失败/停止/重启消息”封装起来，命令菜单和配置监听
-    // 都通过这个对象控制服务，避免各处直接修改 currentPort/currentToken/isRunning。
+    // 都通过这个对象控制服务，避免各处直接修改 currentPort/isRunning。
     const serviceController = createGatewayServiceController({
         manager,
         context,
@@ -163,10 +163,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
             async startAndCreateBridgeUrl(siteId: string, targetUrl: string): Promise<string> {
                 await serviceController.start();
                 const state = serviceController.getState();
-                if (!state.isRunning || !state.currentPort || !state.currentToken) {
+                if (!state.isRunning || !state.currentPort) {
                     throw new Error('Evaluation Gateway failed to start.');
                 }
-                return buildBridgeUrl(state.currentPort, state.currentToken, siteId, targetUrl);
+                const bridgeCode = serviceController.issueBridgeCode(siteId, targetUrl);
+                return buildBridgeUrl(state.currentPort, bridgeCode);
             },
             async stop(): Promise<void> {
                 await serviceController.stop();

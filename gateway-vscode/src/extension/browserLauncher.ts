@@ -12,20 +12,20 @@ import { prepareIsolatedProfileDirForLaunch } from './isolatedProfileLaunch';
 import { expandHomePath, type BrowserFamily } from './isolatedBrowserProfiles';
 import { isBrowserProcessRunning } from './processDetection';
 import type { AISiteConfig } from './types';
+import { buildBridgeUrl } from './bridgeUrl';
 
 interface LaunchBridgeOptions {
     context: vscode.ExtensionContext;
     siteId: string;
-    targetUrl: string;
     browserMode: string;
     currentPort: number;
-    currentToken: string;
+    bridgeCode: string;
 }
 
 const ISOLATED_EDGE_PROFILE_HOME_URL = 'edge://newtab/';
 
 export function launchBridge(options: LaunchBridgeOptions): void {
-    const bridgeUrl = buildBridgeUrl(options.currentPort, options.currentToken, options.siteId, options.targetUrl);
+    const bridgeUrl = buildBridgeUrl(options.currentPort, options.bridgeCode);
     const finalBrowser = resolveBrowser(options.siteId, options.browserMode);
 
     openBrowser(bridgeUrl, finalBrowser, options.context);
@@ -35,15 +35,6 @@ export function launchIsolatedEdgeProfile(context: vscode.ExtensionContext): voi
     void openIsolatedBrowser(ISOLATED_EDGE_PROFILE_HOME_URL, 'edge', context).catch(error => {
         void vscode.window.showErrorMessage(t('open_browser_failed', { message: getErrorMessage(error) }));
     });
-}
-
-export function buildBridgeUrl(currentPort: number, currentToken: string, siteId: string, targetUrl: string): string {
-    const params = new URLSearchParams({
-        bridgeToken: currentToken,
-        siteId,
-        target: targetUrl
-    });
-    return `http://127.0.0.1:${currentPort}/bridge?${params.toString()}`;
 }
 
 function resolveBrowser(siteId: string, browserMode: string): string {

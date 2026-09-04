@@ -121,6 +121,7 @@ export interface Session {
   autoApproveTools: boolean;
   workspaceId: string;
   lastGatewayActivityAt?: number;
+  gatewayIdleTimeoutMs?: number;
   siteId?: string;
   targetOrigin?: string;
   targetUrl?: string;

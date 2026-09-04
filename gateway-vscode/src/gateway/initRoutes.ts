@@ -10,7 +10,7 @@ export function registerConfigRoutes(
     log: GatewayLogger
 ): void {
     app.get('/v1/status', (_req, res) => {
-        res.json({ ok: true });
+        res.json({ ok: true, idleTimeoutMs: config.idleTimeoutMs });
     });
 
     app.get('/v1/init', (req, res) => {

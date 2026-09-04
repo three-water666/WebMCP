@@ -307,8 +307,10 @@ function redactUrlSecret(value) {
   }
   try {
     const url = new URL(value);
-    if (url.searchParams.has('bridgeToken')) {
-      url.searchParams.set('bridgeToken', '[redacted]');
+    for (const sensitiveParameter of ['bridgeCode', 'bridgeToken']) {
+      if (url.searchParams.has(sensitiveParameter)) {
+        url.searchParams.set(sensitiveParameter, '[redacted]');
+      }
     }
     return url.toString();
   } catch {

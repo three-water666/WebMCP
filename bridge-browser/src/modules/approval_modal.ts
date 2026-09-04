@@ -317,15 +317,25 @@ function bindModalActions(
   mandatory: boolean
 ): void {
   const state: ModalState = { rejectStep: 0 };
-  elements.btnConfirm.onclick = () => confirmScope(false, callbacks, closeModal);
-  elements.btnAlways.onclick = () => showAlwaysApprovalView(elements, details.isCommandScopedApproval);
-  elements.btnConfirmAlways.onclick = () => confirmScope("exact", callbacks, closeModal);
+  elements.btnConfirm.onclick = (event) => confirmTrustedScope(event, false, callbacks, closeModal);
+  elements.btnAlways.onclick = (event) => {
+    if (event.isTrusted) {showAlwaysApprovalView(elements, details.isCommandScopedApproval);}
+  };
+  elements.btnConfirmAlways.onclick = (event) => confirmTrustedScope(event, "exact", callbacks, closeModal);
   bindScopeButton(elements.btnAllowExact, "exact", callbacks, closeModal);
   bindScopeButton(elements.btnAllowExecutable, "executable", callbacks, closeModal, details.executableKey);
   bindScopeButton(elements.btnAllowPrefix, "prefix", callbacks, closeModal, details.prefixKey);
   bindRejectFlow(elements, state, callbacks, closeModal);
   bindBackButton(elements, state, mandatory);
-  bindReasonInput(elements);
+}
+
+function confirmTrustedScope(
+  event: MouseEvent,
+  scope: CommandApprovalScope,
+  callbacks: ModalCallbacks,
+  closeModal: () => void
+): void {
+  if (event.isTrusted) {confirmScope(scope, callbacks, closeModal);}
 }
 
 function confirmScope(
@@ -348,7 +358,7 @@ function bindScopeButton(
     return;
   }
 
-  button.onclick = () => confirmScope(scope, callbacks, closeModal);
+  button.onclick = (event) => confirmTrustedScope(event, scope, callbacks, closeModal);
 }
 
 function showAlwaysApprovalView(elements: ModalElements, isCommandScopedApproval: boolean): void {
@@ -367,7 +377,7 @@ function bindRejectFlow(
   callbacks: ModalCallbacks,
   closeModal: () => void
 ): void {
-  elements.btnReject.onclick = () => {
+  const reject = () => {
     if (state.rejectStep === 0) {
       showRejectReasonView(elements, state);
       return;
@@ -377,6 +387,10 @@ function bindRejectFlow(
     closeModal();
     callbacks.onReject(reason);
   };
+  elements.btnReject.onclick = (event) => {
+    if (event.isTrusted) {reject();}
+  };
+  bindReasonInput(elements, reject);
 }
 
 function showRejectReasonView(elements: ModalElements, state: ModalState): void {
@@ -391,8 +405,8 @@ function showRejectReasonView(elements: ModalElements, state: ModalState): void 
 }
 
 function bindBackButton(elements: ModalElements, state: ModalState, mandatory: boolean): void {
-  elements.btnBack.onclick = () => {
-    resetModalView(elements, state, mandatory);
+  elements.btnBack.onclick = (event) => {
+    if (event.isTrusted) {resetModalView(elements, state, mandatory);}
   };
 }
 
@@ -410,12 +424,12 @@ function resetModalView(elements: ModalElements, state: ModalState, mandatory: b
   elements.btnConfirmAlways.style.display = "none";
 }
 
-function bindReasonInput(elements: ModalElements): void {
+function bindReasonInput(elements: ModalElements, reject: () => void): void {
   elements.inputReason.onkeydown = (event) => {
-    if (event.key === "Enter") {
+    if (event.isTrusted && event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
-      elements.btnReject.click();
+      reject();
     }
   };
 }

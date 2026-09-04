@@ -16,7 +16,7 @@ export interface MessageRequest {
   type: string;
   tabId?: number;
   port?: number;
-  token?: string;
+  bridgeCode?: string;
   siteId?: string;
   targetOrigin?: string;
   targetUrl?: string;
@@ -42,6 +42,7 @@ export interface HandshakeResponse {
   success: boolean;
   error?: string;
   conflictTabId?: string;
+  targetUrl?: string;
 }
 
 export interface StatusResponse {
@@ -78,6 +79,7 @@ export interface StoredSession {
   autoApproveTools?: boolean;
   workspaceId?: string;
   lastGatewayActivityAt?: number;
+  gatewayIdleTimeoutMs?: number;
   siteId?: string;
   targetOrigin?: string;
   targetUrl?: string;
@@ -123,15 +125,7 @@ export function isStoredSession(value: unknown): value is StoredSession {
 
   return typeof value.port === "number" &&
     typeof value.token === "string" &&
-    isOptionalBoolean(value.showLog) &&
-    isOptionalBoolean(value.autoSend) &&
-    isOptionalBoolean(value.autoApproveTools) &&
-    isOptionalString(value.workspaceId) &&
-    isOptionalNumber(value.lastGatewayActivityAt) &&
-    isOptionalString(value.siteId) &&
-    isOptionalString(value.targetOrigin) &&
-    isOptionalString(value.targetUrl) &&
-    isOptionalStringArray(value.allowedOrigins);
+    hasValidStoredSessionOptions(value);
 }
 
 export function normalizeSession(value: unknown): Session | null {
@@ -145,6 +139,7 @@ export function normalizeSession(value: unknown): Session | null {
     autoApproveTools: value.autoApproveTools ?? false,
     workspaceId: value.workspaceId ?? "global",
     lastGatewayActivityAt: value.lastGatewayActivityAt,
+    gatewayIdleTimeoutMs: value.gatewayIdleTimeoutMs,
     siteId: value.siteId,
     targetOrigin: value.targetOrigin ?? value.allowedOrigins?.[0],
     targetUrl: value.targetUrl,
@@ -201,4 +196,11 @@ function isOptionalNumber(value: unknown): boolean {
 function isOptionalStringArray(value: unknown): boolean {
   return value === undefined ||
     (Array.isArray(value) && value.every((item) => typeof item === "string"));
+}
+
+function hasValidStoredSessionOptions(value: Record<string, unknown>): boolean {
+  return [value.showLog, value.autoSend, value.autoApproveTools].every(isOptionalBoolean) &&
+    [value.workspaceId, value.siteId, value.targetOrigin, value.targetUrl].every(isOptionalString) &&
+    [value.lastGatewayActivityAt, value.gatewayIdleTimeoutMs].every(isOptionalNumber) &&
+    isOptionalStringArray(value.allowedOrigins);
 }

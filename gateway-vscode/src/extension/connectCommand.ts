@@ -22,7 +22,6 @@ interface RegisterGatewayConnectCommandOptions {
 interface OnlineMenuContext {
     extensionContext: vscode.ExtensionContext;
     currentPort: number;
-    currentToken: string;
     outputChannel: vscode.OutputChannel;
     serviceController: GatewayServiceController;
 }
@@ -66,7 +65,7 @@ async function handleGatewayConnectCommand(
     }
 
     // 3. Case: Online -> Show Full Menu
-    if (!state.currentPort || !state.currentToken) {
+    if (!state.currentPort) {
         // Should not happen if isRunning is true, but safe guard
         serviceController.markOffline();
         return;
@@ -75,7 +74,6 @@ async function handleGatewayConnectCommand(
     await showOnlineMenu({
         extensionContext,
         currentPort: state.currentPort,
-        currentToken: state.currentToken,
         outputChannel,
         serviceController
     });
@@ -107,11 +105,10 @@ async function showOfflineMenu(
     if (selection.action === 'start') {
         await serviceController.start();
         const newState = serviceController.getState();
-        if (newState.currentPort && newState.currentToken && newState.isRunning) {
+        if (newState.currentPort && newState.isRunning) {
             await showOnlineMenu({
                 extensionContext,
                 currentPort: newState.currentPort,
-                currentToken: newState.currentToken,
                 outputChannel,
                 serviceController
             });
@@ -248,7 +245,7 @@ async function handleOnlineSelection(
 
     // 3. 自定义启动
     if (selection.action === 'custom') {
-        await launchCustomBridge(aiSites, context.extensionContext, context.currentPort, context.currentToken);
+        await launchCustomBridge(aiSites, context);
         return;
     }
 
@@ -270,22 +267,20 @@ async function handleOnlineSelection(
 
     // 4. 默认启动 (智能匹配配置)
     if (selection.target) {
+        const siteId = selection.siteId ?? '';
         launchBridge({
             context: context.extensionContext,
-            siteId: selection.siteId ?? '',
-            targetUrl: selection.target,
+            siteId,
             browserMode: 'auto',
             currentPort: context.currentPort,
-            currentToken: context.currentToken
+            bridgeCode: context.serviceController.issueBridgeCode(siteId, selection.target)
         });
     }
 }
 
 async function launchCustomBridge(
     aiSites: ResolvedAiSiteConfig[],
-    extensionContext: vscode.ExtensionContext,
-    currentPort: number,
-    currentToken: string
+    context: OnlineMenuContext
 ): Promise<void> {
     // Custom Launch 现在使用所有配置的 AI 站点，无论 showQuickLaunch 是否为 true
     const aiOptionsForCustomLaunch: CustomActionItem[] = aiSites.map(site => ({
@@ -327,12 +322,14 @@ async function launchCustomBridge(
     }
 
     launchBridge({
-        context: extensionContext,
+        context: context.extensionContext,
         siteId: aiSelection.siteId ?? "",
-        targetUrl: aiSelection.target ?? "",
         browserMode: browserSelection.value ?? "",
-        currentPort,
-        currentToken
+        currentPort: context.currentPort,
+        bridgeCode: context.serviceController.issueBridgeCode(
+            aiSelection.siteId ?? "",
+            aiSelection.target ?? ""
+        )
     });
 }
 

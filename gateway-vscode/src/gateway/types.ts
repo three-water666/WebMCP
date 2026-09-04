@@ -15,6 +15,7 @@ export interface ServerConfig {
 
 export interface GatewayConfig {
     port: number;
+    idleTimeoutMs: number;
     preferredPort?: number;
     mcpServers: Record<string, ServerConfig>;
     allowedOrigins: string[];
@@ -26,7 +27,6 @@ export interface GatewayConfig {
 
 export interface StartResult {
     port: number;
-    token: string;
 }
 
 export type ConnectedClient = {

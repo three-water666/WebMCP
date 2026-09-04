@@ -3,15 +3,19 @@ import type express from 'express';
 import { BRANDING } from '@webcode/shared';
 
 import { findAiSiteById, isTargetAllowedForSite, type ResolvedAiSiteConfig } from '../platforms';
+import type { PendingBridgeLaunch } from './bridgeSession';
 import type { GatewayLogger } from './types';
 
 type BridgeRouteOptions = {
-    getPort: () => number;
+    activateSession: () => string;
+    consumeBridgeCode: (code: string) => PendingBridgeLaunch | null;
+    getBridgeLaunch: (code: string) => PendingBridgeLaunch | null;
     getAiSites: () => readonly ResolvedAiSiteConfig[];
-    getAuthToken: () => string;
     getExtensionVersion: () => string;
+    getIdleTimeoutMs: () => number;
     getWorkspaceRoot: () => string | null;
     log: GatewayLogger;
+    recordActivity: () => void;
 };
 
 function createWorkspaceId(workspaceRoot: string | null): string {
@@ -24,68 +28,92 @@ function createWorkspaceId(workspaceRoot: string | null): string {
 
 export function registerBridgeRoute(app: express.Express, options: BridgeRouteOptions): void {
     app.get('/bridge', (req, res) => {
-        const aiSites = options.getAiSites();
-        const site = resolveBridgeSite(getSingleQueryValue(req.query.siteId), aiSites);
-        if (!site) {
-            options.log(`⛔ Rejected bridge site id: ${getSingleQueryValue(req.query.siteId) ?? '<missing>'}`);
+        setBridgeSecurityHeaders(res);
+        const bridgeCode = getSingleQueryValue(req.query.bridgeCode);
+        const launch = bridgeCode ? options.getBridgeLaunch(bridgeCode) : null;
+        const resolvedLaunch = launch ? resolvePendingBridgeLaunch(launch, options.getAiSites()) : null;
+        if (!bridgeCode || !resolvedLaunch) {
+            options.log('⛔ Rejected missing, expired, or invalid bridge code.');
             res.status(400).send(renderInvalidBridgePage());
             return;
         }
 
-        const bridgeToken = getSingleQueryValue(req.query.bridgeToken);
-        if (!bridgeToken || bridgeToken !== options.getAuthToken()) {
-            options.log(`⛔ Rejected bridge token for ${site.id}.`);
-            res.status(400).send(renderInvalidBridgePage());
-            return;
-        }
-
-        const rawTarget = getSingleQueryValue(req.query.target) ?? site.address;
-        const target = resolveAllowedBridgeTarget(rawTarget, site);
-        if (!target) {
-            options.log(`⛔ Rejected bridge target for ${site.id}: ${rawTarget}`);
-            res.status(400).send(renderInvalidBridgePage());
-            return;
-        }
-
-        const port = options.getPort();
         const releaseUrl = `${BRANDING.repositoryUrl}/releases`;
         const storeUrl = 'https://chromewebstore.google.com/detail/webcode-bridge/kghhldphcmpiimophipabdhldfipgiio';
         const vscodeExtensionVersion = options.getExtensionVersion();
         const workspaceId = createWorkspaceId(options.getWorkspaceRoot());
 
-        options.log(`🌉 Bridge handshake requested for ${site.id} in workspace [${workspaceId}].`);
+        options.log(`🌉 Bridge page requested for ${resolvedLaunch.site.id} in workspace [${workspaceId}].`);
 
         res.send(renderBridgePage({
-            port,
-            token: bridgeToken,
-            siteId: site.id,
-            target,
             vscodeExtensionVersion,
-            workspaceId,
             releaseUrl,
             storeUrl
         }));
     });
+
+    app.post('/v1/bridge/redeem', (req, res) => {
+        setBridgeSecurityHeaders(res);
+        const redemptionRequest = getBridgeRedemptionFromBody(req.body);
+        if (!redemptionRequest) {
+            options.log('⛔ Rejected malformed bridge redemption request.');
+            res.status(400).json({
+                success: false,
+                error: 'A bridge code and browser extension version are required.'
+            });
+            return;
+        }
+        if (redemptionRequest.browserExtensionVersion !== options.getExtensionVersion()) {
+            options.log('⛔ Rejected bridge redemption from an incompatible browser extension.');
+            res.status(409).json({
+                success: false,
+                error: 'VS Code and browser extension versions do not match.'
+            });
+            return;
+        }
+
+        const bridgeCode = redemptionRequest.bridgeCode;
+        const launch = bridgeCode ? options.consumeBridgeCode(bridgeCode) : null;
+        const resolvedLaunch = launch ? resolvePendingBridgeLaunch(launch, options.getAiSites()) : null;
+        if (!resolvedLaunch) {
+            options.log('⛔ Rejected expired, used, or invalid bridge code redemption.');
+            res.status(410).json({
+                success: false,
+                error: 'Bridge code expired or already used. Launch the site again from VS Code.'
+            });
+            return;
+        }
+
+        const token = options.activateSession();
+        const workspaceId = createWorkspaceId(options.getWorkspaceRoot());
+        options.recordActivity();
+        options.log(`🔐 Bridge code redeemed for ${resolvedLaunch.site.id} in workspace [${workspaceId}].`);
+
+        res.json({
+            success: true,
+            token,
+            siteId: resolvedLaunch.site.id,
+            targetOrigin: new URL(resolvedLaunch.targetUrl).origin,
+            targetUrl: resolvedLaunch.targetUrl,
+            vscodeExtensionVersion: options.getExtensionVersion(),
+            workspaceId,
+            idleTimeoutMs: options.getIdleTimeoutMs()
+        });
+    });
+
+    app.get('/favicon.ico', (_req, res) => {
+        res.status(204).end();
+    });
 }
 
 type BridgePageOptions = {
-    port: number;
-    token: string;
-    siteId: string;
-    target: string;
     vscodeExtensionVersion: string;
-    workspaceId: string;
     releaseUrl: string;
     storeUrl: string;
 };
 
 function renderBridgePage({
-    port,
-    token,
-    siteId,
-    target,
     vscodeExtensionVersion,
-    workspaceId,
     releaseUrl,
     storeUrl
 }: BridgePageOptions): string {
@@ -96,7 +124,7 @@ function renderBridgePage({
                 <body>
                     ${renderMainCard()}
 
-                    ${renderBridgeData({ port, token, siteId, target, vscodeExtensionVersion, workspaceId })}
+                    ${renderBridgeData(vscodeExtensionVersion)}
 
                     ${renderInstallGuide({ releaseUrl, storeUrl })}
 
@@ -139,6 +167,34 @@ export function resolveBridgeSite(
     return aiSites[0] ?? null;
 }
 
+function resolvePendingBridgeLaunch(
+    launch: PendingBridgeLaunch,
+    aiSites: readonly ResolvedAiSiteConfig[]
+): { site: ResolvedAiSiteConfig; targetUrl: string } | null {
+    const site = resolveBridgeSite(launch.siteId, aiSites);
+    if (!site) {
+        return null;
+    }
+
+    const targetUrl = resolveAllowedBridgeTarget(launch.targetUrl, site);
+    return targetUrl ? { site, targetUrl } : null;
+}
+
+function getBridgeRedemptionFromBody(
+    body: unknown
+): { bridgeCode: string; browserExtensionVersion: string } | null {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return null;
+    }
+
+    const record = body as Record<string, unknown>;
+    const bridgeCode = typeof record.bridgeCode === 'string' ? record.bridgeCode.trim() : '';
+    const browserExtensionVersion = typeof record.browserExtensionVersion === 'string'
+        ? record.browserExtensionVersion.trim()
+        : '';
+    return bridgeCode && browserExtensionVersion ? { bridgeCode, browserExtensionVersion } : null;
+}
+
 function getSingleQueryValue(value: unknown): string | null {
     if (typeof value === 'string') {
         return value;
@@ -151,8 +207,17 @@ function getSingleQueryValue(value: unknown): string | null {
     return null;
 }
 
-function renderBridgeData(options: Pick<BridgePageOptions, 'port' | 'token' | 'siteId' | 'target' | 'vscodeExtensionVersion' | 'workspaceId'>): string {
-    return `<script id="mcp-data" type="application/json">${escapeHtmlText(JSON.stringify(options))}</script>`;
+function setBridgeSecurityHeaders(res: express.Response): void {
+    res.set({
+        'Cache-Control': 'no-store, max-age=0',
+        Pragma: 'no-cache',
+        'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff'
+    });
+}
+
+function renderBridgeData(vscodeExtensionVersion: string): string {
+    return `<script id="mcp-data" type="application/json">${escapeHtmlText(JSON.stringify({ vscodeExtensionVersion }))}</script>`;
 }
 
 function renderBridgeHead(): string {

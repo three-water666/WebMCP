@@ -175,12 +175,12 @@ Custom sites do not inherit defaults, so the selector set must be complete.
 ## Runtime Flow
 
 1. The user picks a site from the VS Code status bar menu.
-2. VS Code opens `/bridge?bridgeToken=...&siteId=<id>&target=<address>`.
-3. The gateway validates `bridgeToken`, `siteId`, and `target`; `target` must belong to the selected site.
-4. The gateway writes the VS Code extension version into the bridge page data.
-5. The browser bridge reads the token from page data, then compares that version with the browser extension manifest version.
-6. If the versions match, the handshake stores `siteId`, `targetOrigin`, and `targetUrl` in `session_<tabId>`.
-7. The background script fetches `/v1/init` and writes prompts plus `syncedAiSites` to `chrome.storage.local`.
+2. The gateway issues a bridge code that is bound to the site and target, expires after 60 seconds, and can be used only once.
+3. VS Code opens only `/bridge?bridgeCode=...`; the long-lived API credential never enters the URL or browser launch arguments.
+4. The gateway returns a non-cacheable bridge page containing the VS Code extension version.
+5. The bridge page removes the code from the address bar after reading it and requires the browser and VS Code extension versions to match.
+6. The background script calls `/v1/bridge/redeem`; the gateway atomically consumes the code and returns a new session token valid only for the current gateway run, plus `siteId`, `targetOrigin`, and `targetUrl`.
+7. The background script stores the session in `session_<tabId>`, then fetches `/v1/init` and writes prompts plus `syncedAiSites` to `chrome.storage.local`.
 8. The target page content script calls `GET_STATUS` to get `siteId`.
 9. The content script uses `siteId` to find selectors and optional capture settings in `syncedAiSites`.
 
