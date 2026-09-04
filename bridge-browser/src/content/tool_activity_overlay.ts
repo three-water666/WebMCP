@@ -70,6 +70,7 @@ export class ToolActivityOverlay {
   }
 
   public setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) {return;}
     this.enabled = enabled;
     if (!enabled) {
       this.expanded = false;
@@ -158,8 +159,7 @@ export class ToolActivityOverlay {
   }
 
   private createCurrentHeader(
-    entry: ToolActivityTurnEntry | undefined,
-    historyCount: number
+    entry: ToolActivityTurnEntry | undefined, historyCount: number
   ): HTMLElement {
     const header = document.createElement("div");
     header.className = "header drag-header";

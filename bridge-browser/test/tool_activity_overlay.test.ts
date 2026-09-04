@@ -19,6 +19,7 @@ type OverlayConstructor = new (
 
 interface OverlayHarness {
   host: FakeElement;
+  overlay: OverlayInstance;
   panel: FakeElement;
   queue: FollowUpQueue;
   stack: FakeElement;
@@ -47,6 +48,9 @@ async function main(): Promise<void> {
   });
   runTest("tool updates preserve the follow-up draft and input focus", () => {
     testStableFollowUpInput(ToolActivityOverlay);
+  });
+  runTest("repeated enable updates do not rerender the work panel", () => {
+    testIdempotentEnabledState(ToolActivityOverlay);
   });
 }
 
@@ -172,6 +176,19 @@ function testStableFollowUpInput(Overlay: OverlayConstructor): void {
   assertIncludes(harness.panel.getText(), "send after this turn", "confirmed follow-up was not shown in the shared panel");
 }
 
+function testIdempotentEnabledState(Overlay: OverlayConstructor): void {
+  const harness = createHarness(Overlay, false);
+  const header = getRequired(harness.panel, ".header");
+
+  harness.overlay.setEnabled(true);
+
+  assertEqual(
+    getRequired(harness.panel, ".header"),
+    header,
+    "repeated enabled state replaced the panel DOM"
+  );
+}
+
 function createHarness(Overlay: OverlayConstructor, expand = true): OverlayHarness {
   fakeDocument.reset();
   fakeWindow.reset();
@@ -186,7 +203,7 @@ function createHarness(Overlay: OverlayConstructor, expand = true): OverlayHarne
   host.setRect({ height: 250, left: 600, top: 400, width: 380 });
   overlay.setEnabled(true);
   if (expand) {getRequired(host.shadowRoot!, ".launcher").click();}
-  return { host, panel, queue, stack, tracker };
+  return { host, overlay, panel, queue, stack, tracker };
 }
 
 function captureTurn(
