@@ -1,0 +1,188 @@
+import * as assert from 'assert';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+import { BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
+
+import {
+    activatePreparedBrowserExtension,
+    BROWSER_EXTENSION_ACTIVE_DIR_NAME,
+    BROWSER_EXTENSION_BUILD_FILE,
+    calculateBrowserExtensionBuildHash,
+    prepareBrowserExtensionInstall,
+    readAndValidateBrowserExtensionBuild,
+    resolveDefaultBrowserExtensionRoot,
+    type BrowserExtensionBuild
+} from '../extension/browserExtensionInstall';
+
+suite('Browser extension installation', () => {
+    test('resolves a version-independent app data root', () => {
+        assert.strictEqual(
+            resolveDefaultBrowserExtensionRoot(
+                'win32',
+                { LOCALAPPDATA: path.win32.join('C:\\', 'Users', 'me', 'AppData', 'Local') },
+                path.win32.join('C:\\', 'Users', 'me')
+            ),
+            path.win32.join('C:\\', 'Users', 'me', 'AppData', 'Local', 'webcode', 'browser-extensions')
+        );
+        assert.strictEqual(
+            resolveDefaultBrowserExtensionRoot('darwin', {}, '/Users/me'),
+            path.posix.join('/Users/me', 'Library', 'Application Support', 'webcode', 'browser-extensions')
+        );
+        assert.strictEqual(
+            resolveDefaultBrowserExtensionRoot('linux', {}, '/home/me'),
+            path.posix.join('/home/me', '.local', 'share', 'webcode', 'browser-extensions')
+        );
+    });
+
+    test('stages complete builds and switches the stable bridge path only after activation', async () => {
+        await withTempInstall(async ({ rootDir, sourceRoot }) => {
+            const sourceV1 = await createExtensionBuild(sourceRoot, 'v1', '1.0.1', '2026-09-01T00:00:00.000Z');
+            const preparedV1 = await prepareBrowserExtensionInstall({ sourceDir: sourceV1.path, rootDir });
+
+            assert.strictEqual(preparedV1.status, 'staged');
+            assert.strictEqual(await pathExists(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME)), false);
+            if (preparedV1.status !== 'staged') {
+                return;
+            }
+            const activatedV1 = await activatePreparedBrowserExtension({ rootDir }, preparedV1.build);
+            assert.strictEqual(activatedV1.status, 'ready');
+            assert.strictEqual(
+                await fs.readFile(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME, 'worker.js'), 'utf8'),
+                'v1'
+            );
+
+            const sourceV2 = await createExtensionBuild(sourceRoot, 'v2', '1.0.2', '2026-09-02T00:00:00.000Z');
+            const preparedV2 = await prepareBrowserExtensionInstall({ sourceDir: sourceV2.path, rootDir });
+
+            assert.strictEqual(preparedV2.status, 'staged');
+            assert.strictEqual(
+                await fs.readFile(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME, 'worker.js'), 'utf8'),
+                'v1'
+            );
+            if (preparedV2.status !== 'staged') {
+                return;
+            }
+            const activatedV2 = await activatePreparedBrowserExtension({ rootDir }, preparedV2.build);
+            assert.strictEqual(activatedV2.status, 'ready');
+            assert.strictEqual(
+                await fs.readFile(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME, 'worker.js'), 'utf8'),
+                'v2'
+            );
+            assert.strictEqual(await fs.readFile(path.join(rootDir, 'previous', 'worker.js'), 'utf8'), 'v1');
+        });
+    });
+
+    test('reuses an installed build and serializes concurrent preparation', async () => {
+        await withTempInstall(async ({ rootDir, sourceRoot }) => {
+            const source = await createExtensionBuild(sourceRoot, 'same', '1.0.1', '2026-09-01T00:00:00.000Z');
+            const preparedResults = await Promise.all([
+                prepareBrowserExtensionInstall({ sourceDir: source.path, rootDir }),
+                prepareBrowserExtensionInstall({ sourceDir: source.path, rootDir })
+            ]);
+            const staged = preparedResults[0].status === 'staged' ? preparedResults[0] : preparedResults[1];
+            assert.strictEqual(staged.status, 'staged');
+            if (staged.status !== 'staged') {
+                return;
+            }
+
+            await activatePreparedBrowserExtension({ rootDir }, staged.build);
+            const reused = await prepareBrowserExtensionInstall({ sourceDir: source.path, rootDir });
+            assert.strictEqual(reused.status, 'ready');
+            assert.deepStrictEqual(
+                await readAndValidateBrowserExtensionBuild(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME)),
+                source.build
+            );
+        });
+    });
+
+    test('does not let an older VSIX overwrite a newer installed bridge', async () => {
+        await withTempInstall(async ({ rootDir, sourceRoot }) => {
+            const newer = await createExtensionBuild(sourceRoot, 'newer', '1.1.0', '2026-09-02T00:00:00.000Z');
+            const prepared = await prepareBrowserExtensionInstall({ sourceDir: newer.path, rootDir });
+            assert.strictEqual(prepared.status, 'staged');
+            if (prepared.status !== 'staged') {
+                return;
+            }
+            await activatePreparedBrowserExtension({ rootDir }, prepared.build);
+
+            const older = await createExtensionBuild(sourceRoot, 'older', '1.0.9', '2026-09-03T00:00:00.000Z');
+            const downgrade = await prepareBrowserExtensionInstall({ sourceDir: older.path, rootDir });
+
+            assert.strictEqual(downgrade.status, 'newer-installed');
+            assert.strictEqual(
+                await fs.readFile(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME, 'worker.js'), 'utf8'),
+                'newer'
+            );
+        });
+    });
+
+    test('rejects a build whose files changed after its descriptor was written', async () => {
+        await withTempInstall(async ({ rootDir, sourceRoot }) => {
+            const source = await createExtensionBuild(sourceRoot, 'original', '1.0.1', '2026-09-01T00:00:00.000Z');
+            await fs.writeFile(path.join(source.path, 'worker.js'), 'tampered', 'utf8');
+
+            await assert.rejects(
+                prepareBrowserExtensionInstall({ sourceDir: source.path, rootDir }),
+                /do not match/
+            );
+            assert.strictEqual(await pathExists(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME)), false);
+        });
+    });
+});
+
+async function withTempInstall(
+    callback: (paths: { rootDir: string; sourceRoot: string }) => Promise<void>
+): Promise<void> {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'webcode-browser-extension-'));
+    try {
+        await callback({
+            rootDir: path.join(tempRoot, 'installed'),
+            sourceRoot: path.join(tempRoot, 'sources')
+        });
+    } finally {
+        await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+}
+
+async function createExtensionBuild(
+    sourceRoot: string,
+    workerContents: string,
+    extensionVersion: string,
+    builtAt: string
+): Promise<{ path: string; build: BrowserExtensionBuild }> {
+    const extensionPath = path.join(sourceRoot, `${extensionVersion}-${workerContents}`);
+    await fs.mkdir(extensionPath, { recursive: true });
+    await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({
+        manifest_version: 3,
+        name: 'Test bridge',
+        version: extensionVersion
+    }), 'utf8');
+    await fs.writeFile(path.join(extensionPath, 'worker.js'), workerContents, 'utf8');
+
+    const build: BrowserExtensionBuild = {
+        schemaVersion: 1,
+        extensionVersion,
+        bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
+        buildHash: await calculateBrowserExtensionBuildHash(extensionPath),
+        builtAt
+    };
+    await fs.writeFile(
+        path.join(extensionPath, BROWSER_EXTENSION_BUILD_FILE),
+        `${JSON.stringify(build, null, 2)}\n`,
+        'utf8'
+    );
+    return { path: extensionPath, build };
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+    try {
+        await fs.stat(filePath);
+        return true;
+    } catch (error: unknown) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
+            return false;
+        }
+        throw error;
+    }
+}

@@ -28,6 +28,38 @@ export async function isBrowserProfileInUse(browserFamily: BrowserFamily, profil
     }
 }
 
+export async function getBrowserProfileProcessIds(
+    browserFamily: BrowserFamily,
+    profileDir: string
+): Promise<number[]> {
+    const platform = os.platform();
+    const processes = await listBrowserProcesses(browserFamily, platform);
+    return processes
+        .filter(processInfo => browserCommandLineUsesProfile(processInfo.commandLine, profileDir, platform))
+        .map(processInfo => processInfo.pid);
+}
+
+export async function stopBrowserProfileProcesses(
+    browserFamily: BrowserFamily,
+    profileDir: string,
+    timeoutMs = 5_000
+): Promise<boolean> {
+    const processIds = await getBrowserProfileProcessIds(browserFamily, profileDir);
+    if (processIds.length === 0) {
+        return true;
+    }
+
+    await Promise.all(processIds.map(processId => stopBrowserProcess(processId, os.platform())));
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if ((await getBrowserProfileProcessIds(browserFamily, profileDir)).length === 0) {
+            return true;
+        }
+        await delay(100);
+    }
+    return (await getBrowserProfileProcessIds(browserFamily, profileDir)).length === 0;
+}
+
 export function browserCommandLineUsesProfile(
     commandLine: string,
     profileDir: string,
@@ -76,34 +108,78 @@ async function listBrowserProcessCommandLines(
     browserFamily: BrowserFamily,
     platform: NodeJS.Platform
 ): Promise<string[]> {
-    if (platform === 'win32') {
-        return listWindowsBrowserProcessCommandLines(browserFamily);
-    }
-
-    return listPosixBrowserProcessCommandLines(browserFamily, platform);
+    return (await listBrowserProcesses(browserFamily, platform)).map(processInfo => processInfo.commandLine);
 }
 
-async function listWindowsBrowserProcessCommandLines(browserFamily: BrowserFamily): Promise<string[]> {
+interface BrowserProcessInfo {
+    pid: number;
+    commandLine: string;
+}
+
+async function listBrowserProcesses(
+    browserFamily: BrowserFamily,
+    platform: NodeJS.Platform
+): Promise<BrowserProcessInfo[]> {
+    if (platform === 'win32') {
+        return listWindowsBrowserProcesses(browserFamily);
+    }
+
+    return listPosixBrowserProcesses(browserFamily, platform);
+}
+
+async function listWindowsBrowserProcesses(browserFamily: BrowserFamily): Promise<BrowserProcessInfo[]> {
     const imageName = browserFamily === 'edge' ? 'msedge.exe' : 'chrome.exe';
     const command = [
         '$ErrorActionPreference = "Stop";',
-        `Get-CimInstance Win32_Process -Filter "Name='${imageName}'" |`,
-        'ForEach-Object { $_.CommandLine }'
+        `$processes = @(Get-CimInstance Win32_Process -Filter "Name='${imageName}'" |`,
+        'Select-Object ProcessId, CommandLine);',
+        'ConvertTo-Json -InputObject $processes -Compress'
     ].join(' ');
     const output = await execFileText('powershell.exe', ['-NoProfile', '-Command', command]);
-    return output.split(/\r?\n/).filter(line => line.trim().length > 0);
+    const parsed: unknown = JSON.parse(output || '[]');
+    if (!Array.isArray(parsed)) {
+        return [];
+    }
+    return parsed.flatMap(value => {
+        if (!isRecord(value) ||
+            typeof value.ProcessId !== 'number' ||
+            typeof value.CommandLine !== 'string') {
+            return [];
+        }
+        return [{ pid: value.ProcessId, commandLine: value.CommandLine }];
+    });
 }
 
-async function listPosixBrowserProcessCommandLines(
+async function listPosixBrowserProcesses(
     browserFamily: BrowserFamily,
     platform: NodeJS.Platform
-): Promise<string[]> {
-    const output = await execFileText('ps', [platform === 'darwin' ? '-axo' : '-eo', 'args=']);
+): Promise<BrowserProcessInfo[]> {
+    const output = await execFileText('ps', [platform === 'darwin' ? '-axo' : '-eo', 'pid=,args=']);
     const processNames = getBrowserProcessNames(browserFamily, platform).map(name => name.toLowerCase());
     return output
         .split(/\r?\n/)
         .map(line => line.trim())
-        .filter(line => processNames.some(name => line.toLowerCase().includes(name)));
+        .flatMap(line => {
+            const match = /^(\d+)\s+(.+)$/.exec(line);
+            if (!match || !processNames.some(name => match[2].toLowerCase().includes(name))) {
+                return [];
+            }
+            return [{ pid: Number(match[1]), commandLine: match[2] }];
+        });
+}
+
+async function stopBrowserProcess(processId: number, platform: NodeJS.Platform): Promise<void> {
+    if (platform === 'win32') {
+        await execFileText('taskkill', ['/PID', String(processId), '/T']).catch(() => undefined);
+        return;
+    }
+    try {
+        process.kill(processId, 'SIGTERM');
+    } catch (error: unknown) {
+        if (!hasErrorCode(error, 'ESRCH')) {
+            throw error;
+        }
+    }
 }
 
 function readUserDataDirArgument(commandLine: string): string | null {
@@ -169,6 +245,18 @@ function normalizeProcessPath(filePath: string, platform: NodeJS.Platform): stri
 
 function isCaseInsensitivePlatform(platform: NodeJS.Platform): boolean {
     return platform === 'win32' || platform === 'darwin';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function delay(milliseconds: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 function execFileText(command: string, args: string[]): Promise<string> {

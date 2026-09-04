@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { registerGatewayConfigurationWatcher } from './extension/configurationWatcher';
 import { buildBridgeUrl } from './extension/bridgeUrl';
+import { createBrowserExtensionManager } from './extension/browserExtensionManager';
 import { registerGatewayConnectCommand } from './extension/connectCommand';
 import { registerCopyContextCommand } from './extension/copyContextCommand';
 import { registerIsolatedProfileCleanupCommand } from './extension/isolatedProfileCleanupCommand';
@@ -110,6 +111,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
     // 从这一行之后，manager 的 watchdog 触发自动关闭时可以正确同步 VS Code UI 状态。
     runtime.serviceController = serviceController;
 
+    // bundled bridge 会先复制到版本无关的用户数据目录。准备过程不阻塞扩展激活；
+    // 真正启动隔离浏览器时仍会等待同一个任务完成，并在需要时提示重启旧进程。
+    const browserExtensionManager = createBrowserExtensionManager(context, outputChannel);
+    browserExtensionManager.prepareInBackground();
+
     // 注册编辑器右键菜单命令：复制当前选中文本，并在剪贴板里附带相对文件路径。
     // 该命令和网关服务本身没有运行依赖，所以激活时直接注册。
     registerCopyContextCommand(context);
@@ -121,7 +127,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
     registerGatewayConnectCommand({
         context,
         outputChannel,
-        serviceController
+        serviceController,
+        browserExtensionManager
     });
 
     // 注册 webcodeGateway 配置监听。端口、MCP server、技能目录变化时，

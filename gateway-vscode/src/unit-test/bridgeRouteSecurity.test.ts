@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import express from 'express';
 import type { Server as HttpServer } from 'http';
 import type { AddressInfo } from 'net';
+import { BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
 import { registerBridgeRoute } from '../gateway/bridgeRoute';
 import { BridgeSessionManager } from '../gateway/bridgeSession';
@@ -42,7 +43,18 @@ suite('Bridge route security', () => {
             assert.strictEqual(bridgeResponse.headers.get('referrer-policy'), 'no-referrer');
             assert.match(bridgeResponse.headers.get('cache-control') ?? '', /no-store/);
             assert.doesNotMatch(bridgeHtml, new RegExp(bridgeCode));
+            assert.match(bridgeHtml, /bridge-upgrade-required/);
+            assert.match(bridgeHtml, new RegExp(`"bridgeProtocolVersion":${BRIDGE_PROTOCOL_VERSION}`));
             assert.strictEqual(activityCount, 0);
+
+            const protocolMismatchResponse = await redeemBridgeCode(
+                server.baseUrl,
+                bridgeCode,
+                '1.0.1',
+                BRIDGE_PROTOCOL_VERSION - 1
+            );
+            assert.strictEqual(protocolMismatchResponse.status, 409);
+            assert.ok(sessions.getBridgeLaunch(bridgeCode));
 
             const mismatchResponse = await redeemBridgeCode(server.baseUrl, bridgeCode, '0.0.0');
             assert.strictEqual(mismatchResponse.status, 409);
@@ -57,6 +69,7 @@ suite('Bridge route security', () => {
             assert.strictEqual(redemption.siteId, TEST_SITE.id);
             assert.strictEqual(redemption.targetUrl, TEST_SITE.address);
             assert.strictEqual(redemption.idleTimeoutMs, 30 * 60 * 1000);
+            assert.strictEqual(redemption.bridgeProtocolVersion, BRIDGE_PROTOCOL_VERSION);
             assert.strictEqual(typeof sessionToken, 'string');
             assert.notStrictEqual(sessionToken, bridgeCode);
             assert.strictEqual(sessions.isSessionTokenValid(sessionToken as string), true);
@@ -99,11 +112,16 @@ async function startBridgeServer(
     };
 }
 
-function redeemBridgeCode(baseUrl: string, bridgeCode: string, browserExtensionVersion: string): Promise<Response> {
+function redeemBridgeCode(
+    baseUrl: string,
+    bridgeCode: string,
+    browserExtensionVersion: string,
+    bridgeProtocolVersion = BRIDGE_PROTOCOL_VERSION
+): Promise<Response> {
     return fetch(`${baseUrl}/v1/bridge/redeem`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bridgeCode, browserExtensionVersion })
+        body: JSON.stringify({ bridgeCode, browserExtensionVersion, bridgeProtocolVersion })
     });
 }
 

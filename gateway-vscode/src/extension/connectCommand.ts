@@ -12,11 +12,13 @@ import {
 } from './isolatedProfileCleanupCommand';
 import type { GatewayServiceController } from './serviceController';
 import type { AISiteConfig, CustomActionItem, ResolvedAiSiteConfig } from './types';
+import type { BrowserExtensionManager } from './browserExtensionManager';
 
 interface RegisterGatewayConnectCommandOptions {
     context: vscode.ExtensionContext;
     outputChannel: vscode.OutputChannel;
     serviceController: GatewayServiceController;
+    browserExtensionManager: BrowserExtensionManager;
 }
 
 interface OnlineMenuContext {
@@ -24,6 +26,7 @@ interface OnlineMenuContext {
     currentPort: number;
     outputChannel: vscode.OutputChannel;
     serviceController: GatewayServiceController;
+    browserExtensionManager: BrowserExtensionManager;
 }
 
 const OPEN_PROFILE_FOLDER_BUTTON: vscode.QuickInputButton = {
@@ -37,7 +40,12 @@ export const GATEWAY_RESTART_COMMAND = 'gateway-vscode.restart';
 export function registerGatewayConnectCommand(options: RegisterGatewayConnectCommandOptions): void {
     options.context.subscriptions.push(
         vscode.commands.registerCommand(GATEWAY_CONNECT_COMMAND, async () => {
-            await handleGatewayConnectCommand(options.context, options.outputChannel, options.serviceController);
+            await handleGatewayConnectCommand(
+                options.context,
+                options.outputChannel,
+                options.serviceController,
+                options.browserExtensionManager
+            );
         }),
         vscode.commands.registerCommand(GATEWAY_RESTART_COMMAND, async () => {
             await options.serviceController.restart();
@@ -48,7 +56,8 @@ export function registerGatewayConnectCommand(options: RegisterGatewayConnectCom
 async function handleGatewayConnectCommand(
     extensionContext: vscode.ExtensionContext,
     outputChannel: vscode.OutputChannel,
-    serviceController: GatewayServiceController
+    serviceController: GatewayServiceController,
+    browserExtensionManager: BrowserExtensionManager
 ): Promise<void> {
     const state = serviceController.getState();
 
@@ -60,7 +69,7 @@ async function handleGatewayConnectCommand(
 
     // 2. Case: Offline -> Show Start Option
     if (!state.isRunning) {
-        await showOfflineMenu(extensionContext, outputChannel, serviceController);
+        await showOfflineMenu(extensionContext, outputChannel, serviceController, browserExtensionManager);
         return;
     }
 
@@ -75,14 +84,16 @@ async function handleGatewayConnectCommand(
         extensionContext,
         currentPort: state.currentPort,
         outputChannel,
-        serviceController
+        serviceController,
+        browserExtensionManager
     });
 }
 
 async function showOfflineMenu(
     extensionContext: vscode.ExtensionContext,
     outputChannel: vscode.OutputChannel,
-    serviceController: GatewayServiceController
+    serviceController: GatewayServiceController,
+    browserExtensionManager: BrowserExtensionManager
 ): Promise<void> {
     const cleanupItems = await buildIsolatedProfileCleanupItems(extensionContext);
     const items: CustomActionItem[] = [
@@ -110,11 +121,12 @@ async function showOfflineMenu(
                 extensionContext,
                 currentPort: newState.currentPort,
                 outputChannel,
-                serviceController
+                serviceController,
+                browserExtensionManager
             });
         }
     } else if (selection.action === 'openIsolatedEdgeProfile') {
-        launchIsolatedEdgeProfile(extensionContext);
+        await launchIsolatedEdgeProfile(extensionContext, browserExtensionManager);
     } else if (selection.action === 'resetIsolatedProfiles') {
         await vscode.commands.executeCommand(RESET_ISOLATED_BROWSER_PROFILES_COMMAND);
     } else if (selection.action === 'cleanLegacyIsolatedProfiles') {
@@ -251,7 +263,7 @@ async function handleOnlineSelection(
 
     // 3.5 直接打开默认 Edge 独立 profile，便于登录或管理浏览器插件。
     if (selection.action === 'openIsolatedEdgeProfile') {
-        launchIsolatedEdgeProfile(context.extensionContext);
+        await launchIsolatedEdgeProfile(context.extensionContext, context.browserExtensionManager);
         return;
     }
 
@@ -268,12 +280,13 @@ async function handleOnlineSelection(
     // 4. 默认启动 (智能匹配配置)
     if (selection.target) {
         const siteId = selection.siteId ?? '';
-        launchBridge({
+        await launchBridge({
             context: context.extensionContext,
             siteId,
             browserMode: 'auto',
             currentPort: context.currentPort,
-            bridgeCode: context.serviceController.issueBridgeCode(siteId, selection.target)
+            browserExtensionManager: context.browserExtensionManager,
+            issueBridgeCode: () => context.serviceController.issueBridgeCode(siteId, selection.target ?? '')
         });
     }
 }
@@ -321,12 +334,13 @@ async function launchCustomBridge(
         return;
     }
 
-    launchBridge({
+    await launchBridge({
         context: context.extensionContext,
         siteId: aiSelection.siteId ?? "",
         browserMode: browserSelection.value ?? "",
         currentPort: context.currentPort,
-        bridgeCode: context.serviceController.issueBridgeCode(
+        browserExtensionManager: context.browserExtensionManager,
+        issueBridgeCode: () => context.serviceController.issueBridgeCode(
             aiSelection.siteId ?? "",
             aiSelection.target ?? ""
         )

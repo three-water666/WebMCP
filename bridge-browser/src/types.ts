@@ -17,6 +17,7 @@ export interface MessageRequest {
   tabId?: number;
   port?: number;
   bridgeCode?: string;
+  bridgeProtocolVersion?: number;
   siteId?: string;
   targetOrigin?: string;
   targetUrl?: string;

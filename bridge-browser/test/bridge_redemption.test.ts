@@ -3,6 +3,7 @@ import {
   normalizeRedeemedBridgeSession,
 } from "../src/background/bridge_redemption";
 import { normalizeSession } from "../src/types";
+import { BRIDGE_PROTOCOL_VERSION } from "@webcode/shared";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {throw new Error(message);}
@@ -11,6 +12,7 @@ function assert(condition: unknown, message: string): asserts condition {
 function main(): void {
   const valid = normalizeRedeemedBridgeSession({
     success: true,
+    bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
     idleTimeoutMs: 60 * 60 * 1000,
     siteId: "chatgpt",
     targetOrigin: "https://chatgpt.com",

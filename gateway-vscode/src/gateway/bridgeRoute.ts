@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import type express from 'express';
-import { BRANDING } from '@webcode/shared';
+import { BRANDING, BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
 import { findAiSiteById, isTargetAllowedForSite, type ResolvedAiSiteConfig } from '../platforms';
 import type { PendingBridgeLaunch } from './bridgeSession';
@@ -59,7 +59,15 @@ export function registerBridgeRoute(app: express.Express, options: BridgeRouteOp
             options.log('⛔ Rejected malformed bridge redemption request.');
             res.status(400).json({
                 success: false,
-                error: 'A bridge code and browser extension version are required.'
+                error: 'A bridge code, browser extension version, and bridge protocol version are required.'
+            });
+            return;
+        }
+        if (redemptionRequest.bridgeProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
+            options.log('⛔ Rejected bridge redemption using an incompatible bridge protocol.');
+            res.status(409).json({
+                success: false,
+                error: 'VS Code and browser bridge protocol versions do not match.'
             });
             return;
         }
@@ -96,6 +104,7 @@ export function registerBridgeRoute(app: express.Express, options: BridgeRouteOp
             targetOrigin: new URL(resolvedLaunch.targetUrl).origin,
             targetUrl: resolvedLaunch.targetUrl,
             vscodeExtensionVersion: options.getExtensionVersion(),
+            bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION,
             workspaceId,
             idleTimeoutMs: options.getIdleTimeoutMs()
         });
@@ -182,7 +191,7 @@ function resolvePendingBridgeLaunch(
 
 function getBridgeRedemptionFromBody(
     body: unknown
-): { bridgeCode: string; browserExtensionVersion: string } | null {
+): { bridgeCode: string; browserExtensionVersion: string; bridgeProtocolVersion: number } | null {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
         return null;
     }
@@ -192,7 +201,13 @@ function getBridgeRedemptionFromBody(
     const browserExtensionVersion = typeof record.browserExtensionVersion === 'string'
         ? record.browserExtensionVersion.trim()
         : '';
-    return bridgeCode && browserExtensionVersion ? { bridgeCode, browserExtensionVersion } : null;
+    const bridgeProtocolVersion = record.bridgeProtocolVersion;
+    return bridgeCode &&
+        browserExtensionVersion &&
+        typeof bridgeProtocolVersion === 'number' &&
+        Number.isInteger(bridgeProtocolVersion)
+        ? { bridgeCode, browserExtensionVersion, bridgeProtocolVersion }
+        : null;
 }
 
 function getSingleQueryValue(value: unknown): string | null {
@@ -217,7 +232,17 @@ function setBridgeSecurityHeaders(res: express.Response): void {
 }
 
 function renderBridgeData(vscodeExtensionVersion: string): string {
-    return `<script id="mcp-data" type="application/json">${escapeHtmlText(JSON.stringify({ vscodeExtensionVersion }))}</script>`;
+    const legacyVersionMismatch = `bridge-protocol-${BRIDGE_PROTOCOL_VERSION}:${vscodeExtensionVersion}`;
+    return `<script id="mcp-data" type="application/json">${escapeHtmlText(JSON.stringify({
+        // 旧 bridge loader 会先读取这些字段，再检查版本。这里提供非敏感占位值，
+        // 让它显示版本不一致，而不是在协议切换期间误报“链接参数无效”。
+        token: 'bridge-upgrade-required',
+        siteId: 'bridge-upgrade-required',
+        target: 'http://127.0.0.1/',
+        vscodeExtensionVersion: legacyVersionMismatch,
+        currentVscodeExtensionVersion: vscodeExtensionVersion,
+        bridgeProtocolVersion: BRIDGE_PROTOCOL_VERSION
+    }))}</script>`;
 }
 
 function renderBridgeHead(): string {

@@ -1,6 +1,7 @@
 // 通用通信协议定义
 
 import brandConfig from './branding.json';
+import bridgeProtocolConfig from './bridgeProtocol.json';
 
 export * from './chatgptStream';
 export * from './deepseekStream';
@@ -43,6 +44,8 @@ export const PROTOCOL = {
   networkCaptureEventMessage: `${brandConfig.slug}:network-capture-event`,
   networkCaptureReadyMessage: `${brandConfig.slug}:network-capture-ready`,
 } as const;
+
+export const BRIDGE_PROTOCOL_VERSION = bridgeProtocolConfig.version;
 
 export const PLATFORM_PROMPT_KEY_PREFIX = 'platform_prompt_';
 

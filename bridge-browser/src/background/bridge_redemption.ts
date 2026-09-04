@@ -1,6 +1,7 @@
 import { isRecord } from "../types";
 
 export interface RedeemedBridgeSession {
+  bridgeProtocolVersion: number;
   idleTimeoutMs: number;
   siteId: string;
   targetOrigin: string;
@@ -11,6 +12,7 @@ export interface RedeemedBridgeSession {
 }
 
 interface BridgeSessionPayload extends Record<string, unknown> {
+  bridgeProtocolVersion: number;
   idleTimeoutMs: number;
   siteId: string;
   success: true;
@@ -49,6 +51,7 @@ export function normalizeRedeemedBridgeSession(value: unknown): RedeemedBridgeSe
   }
 
   return {
+    bridgeProtocolVersion: value.bridgeProtocolVersion,
     idleTimeoutMs: value.idleTimeoutMs,
     siteId: value.siteId,
     targetOrigin: value.targetOrigin,
@@ -72,6 +75,9 @@ function isNonEmptyString(value: unknown): value is string {
 function isBridgeSessionPayload(value: Record<string, unknown>): value is BridgeSessionPayload {
   return value.success === true &&
     REQUIRED_STRING_FIELDS.every((field) => isNonEmptyString(value[field])) &&
+    typeof value.bridgeProtocolVersion === "number" &&
+    Number.isInteger(value.bridgeProtocolVersion) &&
+    value.bridgeProtocolVersion > 0 &&
     typeof value.idleTimeoutMs === "number" &&
     Number.isFinite(value.idleTimeoutMs) &&
     value.idleTimeoutMs > 0;

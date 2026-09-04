@@ -1,4 +1,4 @@
-import { BRANDING } from '@webcode/shared';
+import { BRANDING, BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
 import { type HandshakeResponse, isStoredSession, type MessageRequest } from '../types';
 import { updateBadge } from './badge';
@@ -15,6 +15,7 @@ import { removeSession, saveSession } from './sessions';
 interface HandshakeParams {
   port: number;
   bridgeCode: string;
+  bridgeProtocolVersion: number;
   force?: boolean;
   vscodeExtensionVersion: string;
   browserExtensionVersion: string;
@@ -56,7 +57,8 @@ export async function handleHandshake(request: MessageRequest, tabId: number | n
   const redemption = await redeemBridgeCode(
     params.port,
     params.bridgeCode,
-    params.browserExtensionVersion
+    params.browserExtensionVersion,
+    params.bridgeProtocolVersion
   );
   if (!redemption.success) {
     return redemption;
@@ -68,6 +70,9 @@ export async function handleHandshake(request: MessageRequest, tabId: number | n
   }
   if (session.vscodeExtensionVersion !== params.browserExtensionVersion) {
     return { success: false, error: "VS Code and browser extension versions do not match." };
+  }
+  if (session.bridgeProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
+    return { success: false, error: "VS Code and browser bridge protocol versions do not match." };
   }
 
   await bindSession(tabId, {
@@ -141,6 +146,7 @@ function getHandshakeParams(request: MessageRequest): HandshakeParams | null {
   return {
     port: request.port,
     bridgeCode: request.bridgeCode,
+    bridgeProtocolVersion: request.bridgeProtocolVersion,
     force: request.force,
     vscodeExtensionVersion: request.vscodeExtensionVersion,
     browserExtensionVersion: request.browserExtensionVersion,
@@ -156,6 +162,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isCompatibleExtensionVersions(request: MessageRequest): request is MessageRequest & {
+  bridgeProtocolVersion: number;
   vscodeExtensionVersion: string;
   browserExtensionVersion: string;
 } {
@@ -163,6 +170,7 @@ function isCompatibleExtensionVersions(request: MessageRequest): request is Mess
 
   return isNonEmptyString(request.vscodeExtensionVersion) &&
     isNonEmptyString(request.browserExtensionVersion) &&
+    request.bridgeProtocolVersion === BRIDGE_PROTOCOL_VERSION &&
     request.vscodeExtensionVersion === currentBrowserVersion &&
     request.browserExtensionVersion === currentBrowserVersion;
 }
@@ -170,7 +178,8 @@ function isCompatibleExtensionVersions(request: MessageRequest): request is Mess
 async function redeemBridgeCode(
   port: number,
   bridgeCode: string,
-  browserExtensionVersion: string
+  browserExtensionVersion: string,
+  bridgeProtocolVersion: number
 ): Promise<BridgeRedemptionResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), BRIDGE_REDEMPTION_TIMEOUT_MS);
@@ -180,7 +189,7 @@ async function redeemBridgeCode(
       method: "POST",
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bridgeCode, browserExtensionVersion }),
+      body: JSON.stringify({ bridgeCode, browserExtensionVersion, bridgeProtocolVersion }),
       signal: controller.signal,
     });
     const body: unknown = await response.json().catch(() => null);
