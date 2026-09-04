@@ -10,7 +10,11 @@ import { launchFirstAvailableBrowser, type BrowserLaunchCommand } from './browse
 import { getErrorMessage } from './errorUtils';
 import { prepareIsolatedProfileDirForLaunch } from './isolatedProfileLaunch';
 import { expandHomePath, type BrowserFamily } from './isolatedBrowserProfiles';
-import { isBrowserProcessRunning } from './processDetection';
+import {
+    getBrowserBridgeMarkerArgument,
+    getBrowserProfileMarkerArgument,
+    isBrowserProcessRunning
+} from './processDetection';
 import type { AISiteConfig } from './types';
 import { buildBridgeUrl } from './bridgeUrl';
 import type { BrowserExtensionManager } from './browserExtensionManager';
@@ -130,11 +134,6 @@ async function openIsolatedBrowser(
     context: vscode.ExtensionContext,
     browserExtensionManager: BrowserExtensionManager
 ): Promise<void> {
-    const extensionPath = await browserExtensionManager.ensureReadyForLaunch();
-    if (!extensionPath) {
-        return;
-    }
-
     const profileDir = await prepareIsolatedProfileDirForLaunch(browserFamily, context);
     if (!profileDir) {
         return;
@@ -156,8 +155,14 @@ async function openIsolatedBrowser(
         return;
     }
 
-    const browserArgs = buildIsolatedBrowserArgs(getUrl(), profileDir, extensionPath);
-    launchFirstAvailableBrowser(launchCommands, browserArgs, getBrowserDisplayName(browserFamily));
+    await browserExtensionManager.launchWithReadyExtension({
+        browserFamily,
+        profileDir,
+        launch: async extensionPath => {
+            const browserArgs = buildIsolatedBrowserArgs(getUrl(), profileDir, extensionPath);
+            return launchFirstAvailableBrowser(launchCommands, browserArgs, getBrowserDisplayName(browserFamily));
+        }
+    });
 }
 
 async function openUserProfileKeepaliveBrowser(url: string, browserFamily: BrowserFamily): Promise<void> {
@@ -168,7 +173,7 @@ async function openUserProfileKeepaliveBrowser(url: string, browserFamily: Brows
     }
 
     const launchCommands = getUserProfileBrowserLaunchCommands(browserFamily, os.platform());
-    launchFirstAvailableBrowser(launchCommands, buildKeepaliveBrowserArgs(url), browserName);
+    await launchFirstAvailableBrowser(launchCommands, buildKeepaliveBrowserArgs(url), browserName);
 }
 
 function buildIsolatedBrowserArgs(url: string, profileDir: string, extensionPath: string): string[] {
@@ -177,6 +182,8 @@ function buildIsolatedBrowserArgs(url: string, profileDir: string, extensionPath
     return [
         `--user-data-dir=${normalizedProfileDir}`,
         `--load-extension=${normalizedExtensionPath}`,
+        getBrowserProfileMarkerArgument(profileDir),
+        getBrowserBridgeMarkerArgument(extensionPath),
         '--no-first-run',
         '--no-default-browser-check',
         '--disable-sync',

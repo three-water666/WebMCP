@@ -3,6 +3,8 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 
+import { withBrowserExtensionFileLock } from './browserExtensionLock';
+
 export interface BrowserExtensionBuild {
     schemaVersion: 1;
     extensionVersion: string;
@@ -22,6 +24,17 @@ export interface BrowserExtensionInstallOptions {
     lockTimeoutMs?: number;
 }
 
+export interface BrowserExtensionInstallLockOptions {
+    rootDir: string;
+    lockTimeoutMs?: number;
+}
+
+export interface BrowserExtensionInstallLease {
+    readonly rootDir: string;
+    prepare(sourceDir: string): Promise<PrepareBrowserExtensionResult>;
+    activate(expectedBuild: BrowserExtensionBuild): Promise<PrepareBrowserExtensionResult>;
+}
+
 export const BROWSER_EXTENSION_BUILD_FILE = 'bridge-build.json';
 export const BROWSER_EXTENSION_ACTIVE_DIR_NAME = 'bridge';
 
@@ -29,11 +42,7 @@ const PRODUCT_DATA_DIR_NAME = 'webcode';
 const BROWSER_EXTENSION_ROOT_DIR_NAME = 'browser-extensions';
 const INSTALL_RECORD_FILE = 'install.json';
 const PREVIOUS_DIR_NAME = 'previous';
-const INSTALL_LOCK_DIR_NAME = '.install-lock';
-const INSTALL_LOCK_OWNER_FILE = 'owner.json';
 const DEFAULT_LOCK_TIMEOUT_MS = 15_000;
-const STALE_LOCK_MS = 2 * 60_000;
-const LOCK_RETRY_MS = 50;
 
 export function resolveDefaultBrowserExtensionRoot(
     platform: NodeJS.Platform,
@@ -67,91 +76,114 @@ export function resolveDefaultBrowserExtensionRoot(
 export async function prepareBrowserExtensionInstall(
     options: BrowserExtensionInstallOptions
 ): Promise<PrepareBrowserExtensionResult> {
-    const sourceDir = path.resolve(options.sourceDir);
-    const rootDir = path.resolve(options.rootDir);
-    const sourceBuild = await readAndValidateBrowserExtensionBuild(sourceDir);
-
-    return withInstallLock(rootDir, sourceBuild, options.lockTimeoutMs, async () => {
-        const activePath = path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME);
-        const activeBuild = await tryReadBrowserExtensionBuild(activePath);
-        if (activeBuild?.buildHash === sourceBuild.buildHash) {
-            await writeInstallRecord(rootDir, sourceBuild).catch(() => undefined);
-            return { status: 'ready', extensionPath: activePath, build: sourceBuild };
-        }
-        if (activeBuild && compareBrowserExtensionBuilds(activeBuild, sourceBuild) > 0) {
-            return { status: 'newer-installed', installedBuild: activeBuild };
-        }
-
-        const stagingPath = getStagingPath(rootDir, sourceBuild);
-        const stagedBuild = await tryReadBrowserExtensionBuild(stagingPath);
-        if (stagedBuild?.buildHash !== sourceBuild.buildHash) {
-            await fs.rm(stagingPath, { recursive: true, force: true });
-            await fs.cp(sourceDir, stagingPath, {
-                recursive: true,
-                errorOnExist: true,
-                force: false
-            });
-            const copiedBuild = await readAndValidateBrowserExtensionBuild(stagingPath);
-            if (copiedBuild.buildHash !== sourceBuild.buildHash) {
-                throw new Error('The copied browser bridge build does not match its source build.');
-            }
-        }
-
-        const newerStagedBuild = await cleanOtherStagingDirectories(rootDir, stagingPath, sourceBuild);
-        if (newerStagedBuild) {
-            return { status: 'newer-installed', installedBuild: newerStagedBuild };
-        }
-
-        return { status: 'staged', extensionPath: activePath, stagingPath, build: sourceBuild };
-    });
+    return withBrowserExtensionInstallLock(options, lease => lease.prepare(options.sourceDir));
 }
 
 export async function activatePreparedBrowserExtension(
     options: Pick<BrowserExtensionInstallOptions, 'rootDir' | 'lockTimeoutMs'>,
     expectedBuild: BrowserExtensionBuild
 ): Promise<PrepareBrowserExtensionResult> {
+    return withBrowserExtensionInstallLock(options, lease => lease.activate(expectedBuild));
+}
+
+export async function withBrowserExtensionInstallLock<T>(
+    options: BrowserExtensionInstallLockOptions,
+    callback: (lease: BrowserExtensionInstallLease) => Promise<T>
+): Promise<T> {
     const rootDir = path.resolve(options.rootDir);
-    return withInstallLock(rootDir, expectedBuild, options.lockTimeoutMs, async () => {
-        const activePath = path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME);
-        const activeBuild = await tryReadBrowserExtensionBuild(activePath);
-        if (activeBuild?.buildHash === expectedBuild.buildHash) {
-            await writeInstallRecord(rootDir, expectedBuild).catch(() => undefined);
-            return { status: 'ready', extensionPath: activePath, build: expectedBuild };
-        }
-        if (activeBuild && compareBrowserExtensionBuilds(activeBuild, expectedBuild) > 0) {
-            return { status: 'newer-installed', installedBuild: activeBuild };
-        }
+    const lease: BrowserExtensionInstallLease = {
+        rootDir,
+        prepare: sourceDir => prepareBrowserExtensionInstallUnderLock(path.resolve(sourceDir), rootDir),
+        activate: expectedBuild => activatePreparedBrowserExtensionUnderLock(rootDir, expectedBuild)
+    };
+    return withBrowserExtensionFileLock(
+        rootDir,
+        options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS,
+        () => callback(lease)
+    );
+}
 
-        const stagingPath = getStagingPath(rootDir, expectedBuild);
-        const stagedBuild = await readAndValidateBrowserExtensionBuild(stagingPath);
-        if (stagedBuild.buildHash !== expectedBuild.buildHash) {
-            throw new Error('The prepared browser bridge build changed before activation.');
-        }
+async function prepareBrowserExtensionInstallUnderLock(
+    sourceDir: string,
+    rootDir: string
+): Promise<PrepareBrowserExtensionResult> {
+    const sourceBuild = await readAndValidateBrowserExtensionBuild(sourceDir);
+    const activePath = path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME);
+    const activeBuild = await tryReadBrowserExtensionBuild(activePath);
+    if (activeBuild?.buildHash === sourceBuild.buildHash) {
+        await writeInstallRecord(rootDir, sourceBuild).catch(() => undefined);
+        return { status: 'ready', extensionPath: activePath, build: sourceBuild };
+    }
+    if (activeBuild && compareBrowserExtensionBuilds(activeBuild, sourceBuild) > 0) {
+        return { status: 'newer-installed', installedBuild: activeBuild };
+    }
 
-        const previousPath = path.join(rootDir, PREVIOUS_DIR_NAME);
-        await fs.rm(previousPath, { recursive: true, force: true });
-        const hadActiveDirectory = await pathExists(activePath);
-        if (hadActiveDirectory) {
-            await fs.rename(activePath, previousPath);
+    const stagingPath = getStagingPath(rootDir, sourceBuild);
+    const stagedBuild = await tryReadBrowserExtensionBuild(stagingPath);
+    if (stagedBuild?.buildHash !== sourceBuild.buildHash) {
+        await fs.rm(stagingPath, { recursive: true, force: true });
+        await fs.cp(sourceDir, stagingPath, {
+            recursive: true,
+            errorOnExist: true,
+            force: false
+        });
+        const copiedBuild = await readAndValidateBrowserExtensionBuild(stagingPath);
+        if (copiedBuild.buildHash !== sourceBuild.buildHash) {
+            throw new Error('The copied browser bridge build does not match its source build.');
         }
+    }
 
-        try {
-            await fs.rename(stagingPath, activePath);
-            const installedBuild = await readAndValidateBrowserExtensionBuild(activePath);
-            if (installedBuild.buildHash !== expectedBuild.buildHash) {
-                throw new Error('The activated browser bridge build failed validation.');
-            }
-        } catch (error: unknown) {
-            await fs.rm(activePath, { recursive: true, force: true }).catch(() => undefined);
-            if (hadActiveDirectory && await pathExists(previousPath)) {
-                await fs.rename(previousPath, activePath).catch(() => undefined);
-            }
-            throw error;
-        }
+    const newerStagedBuild = await cleanOtherStagingDirectories(rootDir, stagingPath, sourceBuild);
+    if (newerStagedBuild) {
+        return { status: 'newer-installed', installedBuild: newerStagedBuild };
+    }
 
+    return { status: 'staged', extensionPath: activePath, stagingPath, build: sourceBuild };
+}
+
+async function activatePreparedBrowserExtensionUnderLock(
+    rootDir: string,
+    expectedBuild: BrowserExtensionBuild
+): Promise<PrepareBrowserExtensionResult> {
+    const activePath = path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME);
+    const activeBuild = await tryReadBrowserExtensionBuild(activePath);
+    if (activeBuild?.buildHash === expectedBuild.buildHash) {
         await writeInstallRecord(rootDir, expectedBuild).catch(() => undefined);
         return { status: 'ready', extensionPath: activePath, build: expectedBuild };
-    });
+    }
+    if (activeBuild && compareBrowserExtensionBuilds(activeBuild, expectedBuild) > 0) {
+        return { status: 'newer-installed', installedBuild: activeBuild };
+    }
+
+    const stagingPath = getStagingPath(rootDir, expectedBuild);
+    const stagedBuild = await readAndValidateBrowserExtensionBuild(stagingPath);
+    if (stagedBuild.buildHash !== expectedBuild.buildHash) {
+        throw new Error('The prepared browser bridge build changed before activation.');
+    }
+
+    const previousPath = path.join(rootDir, PREVIOUS_DIR_NAME);
+    await fs.rm(previousPath, { recursive: true, force: true });
+    const hadActiveDirectory = await pathExists(activePath);
+    if (hadActiveDirectory) {
+        await fs.rename(activePath, previousPath);
+    }
+
+    try {
+        await fs.rename(stagingPath, activePath);
+        const installedBuild = await readAndValidateBrowserExtensionBuild(activePath);
+        if (installedBuild.buildHash !== expectedBuild.buildHash) {
+            throw new Error('The activated browser bridge build failed validation.');
+        }
+    } catch (error: unknown) {
+        await fs.rm(activePath, { recursive: true, force: true }).catch(() => undefined);
+        if (hadActiveDirectory && await pathExists(previousPath)) {
+            await fs.rename(previousPath, activePath).catch(() => undefined);
+        }
+        throw error;
+    }
+
+    await writeInstallRecord(rootDir, expectedBuild).catch(() => undefined);
+    return { status: 'ready', extensionPath: activePath, build: expectedBuild };
 }
 
 export async function readAndValidateBrowserExtensionBuild(
@@ -305,99 +337,6 @@ async function writeInstallRecord(rootDir: string, build: BrowserExtensionBuild)
     await fs.rename(temporaryPath, targetPath);
 }
 
-async function withInstallLock<T>(
-    rootDir: string,
-    build: BrowserExtensionBuild,
-    timeoutMs: number | undefined,
-    callback: () => Promise<T>
-): Promise<T> {
-    const release = await acquireInstallLock(rootDir, build, timeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
-    try {
-        return await callback();
-    } finally {
-        await release();
-    }
-}
-
-async function acquireInstallLock(
-    rootDir: string,
-    build: BrowserExtensionBuild,
-    timeoutMs: number
-): Promise<() => Promise<void>> {
-    await fs.mkdir(rootDir, { recursive: true });
-    const lockPath = path.join(rootDir, INSTALL_LOCK_DIR_NAME);
-    const ownerPath = path.join(lockPath, INSTALL_LOCK_OWNER_FILE);
-    const token = crypto.randomUUID();
-    const deadline = Date.now() + timeoutMs;
-
-    while (true) {
-        try {
-            await fs.mkdir(lockPath);
-            await fs.writeFile(ownerPath, JSON.stringify({
-                pid: process.pid,
-                token,
-                buildHash: build.buildHash,
-                createdAt: new Date().toISOString()
-            }), 'utf8');
-            return async () => {
-                const owner = await readLockOwner(ownerPath);
-                if (owner?.token === token) {
-                    await fs.rm(lockPath, { recursive: true, force: true });
-                }
-            };
-        } catch (error: unknown) {
-            if (!hasErrorCode(error, 'EEXIST')) {
-                throw error;
-            }
-        }
-
-        if (await isInstallLockStale(lockPath, ownerPath)) {
-            await fs.rm(lockPath, { recursive: true, force: true });
-            continue;
-        }
-        if (Date.now() >= deadline) {
-            throw new Error(`Timed out waiting for browser bridge installation lock at ${lockPath}.`);
-        }
-        await delay(LOCK_RETRY_MS);
-    }
-}
-
-async function isInstallLockStale(lockPath: string, ownerPath: string): Promise<boolean> {
-    const owner = await readLockOwner(ownerPath);
-    if (owner && !isProcessAlive(owner.pid)) {
-        return true;
-    }
-    try {
-        const stats = await fs.stat(lockPath);
-        return Date.now() - stats.mtimeMs > STALE_LOCK_MS;
-    } catch (error: unknown) {
-        return hasErrorCode(error, 'ENOENT');
-    }
-}
-
-async function readLockOwner(ownerPath: string): Promise<{ pid: number; token: string } | null> {
-    try {
-        const value: unknown = JSON.parse(await fs.readFile(ownerPath, 'utf8'));
-        return isRecord(value) &&
-            typeof value.pid === 'number' &&
-            Number.isInteger(value.pid) &&
-            typeof value.token === 'string'
-            ? { pid: value.pid, token: value.token }
-            : null;
-    } catch {
-        return null;
-    }
-}
-
-function isProcessAlive(pid: number): boolean {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error: unknown) {
-        return hasErrorCode(error, 'EPERM');
-    }
-}
-
 async function pathExists(filePath: string): Promise<boolean> {
     try {
         await fs.stat(filePath);
@@ -416,8 +355,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasErrorCode(error: unknown, code: string): boolean {
     return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
-}
-
-function delay(milliseconds: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, milliseconds));
 }

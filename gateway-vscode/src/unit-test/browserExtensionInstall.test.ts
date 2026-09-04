@@ -12,6 +12,7 @@ import {
     prepareBrowserExtensionInstall,
     readAndValidateBrowserExtensionBuild,
     resolveDefaultBrowserExtensionRoot,
+    withBrowserExtensionInstallLock,
     type BrowserExtensionBuild
 } from '../extension/browserExtensionInstall';
 
@@ -129,7 +130,95 @@ suite('Browser extension installation', () => {
             assert.strictEqual(await pathExists(path.join(rootDir, BROWSER_EXTENSION_ACTIVE_DIR_NAME)), false);
         });
     });
+
+    test('reclaims one stale lock generation without overlapping contenders', async () => {
+        await withTempInstall(({ rootDir }) => verifyStaleLockReclamation(rootDir));
+    });
+
+    test('keeps stale empty lock reclamation atomic on POSIX rename semantics', async () => {
+        await withTempInstall(({ rootDir }) => verifyEmptyStaleLockReclamation(rootDir));
+    });
+
+    test('keeps a launch-sized critical section serialized with bridge mutations', async () => {
+        await withTempInstall(({ rootDir }) => verifyLaunchLockSerialization(rootDir));
+    });
 });
+
+async function verifyStaleLockReclamation(rootDir: string): Promise<void> {
+    const lockPath = path.join(rootDir, '.install-lock');
+    await fs.mkdir(lockPath, { recursive: true });
+    await fs.writeFile(path.join(lockPath, 'owner.json'), JSON.stringify({
+        pid: 2_147_483_647,
+        token: 'abandoned-owner'
+    }), 'utf8');
+
+    let activeCallbacks = 0;
+    let maximumActiveCallbacks = 0;
+    const contend = () => withBrowserExtensionInstallLock({ rootDir }, async () => {
+        activeCallbacks += 1;
+        maximumActiveCallbacks = Math.max(maximumActiveCallbacks, activeCallbacks);
+        await delay(30);
+        activeCallbacks -= 1;
+    });
+
+    await Promise.all([contend(), contend()]);
+
+    assert.strictEqual(maximumActiveCallbacks, 1);
+    const entries = await fs.readdir(rootDir);
+    assert.strictEqual(entries.filter(entry => entry.startsWith('.install-lock-reclaimed-')).length, 1);
+    assert.strictEqual(await pathExists(lockPath), false);
+}
+
+async function verifyLaunchLockSerialization(rootDir: string): Promise<void> {
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstMayFinish = new Promise<void>(resolve => {
+        releaseFirst = resolve;
+    });
+    let reportFirstStarted!: () => void;
+    const firstStarted = new Promise<void>(resolve => {
+        reportFirstStarted = resolve;
+    });
+
+    const first = withBrowserExtensionInstallLock({ rootDir }, async () => {
+        events.push('launch-start');
+        reportFirstStarted();
+        await firstMayFinish;
+        events.push('launch-end');
+    });
+    await firstStarted;
+    const second = withBrowserExtensionInstallLock({ rootDir }, () => {
+        events.push('activation');
+        return Promise.resolve();
+    });
+
+    await delay(30);
+    assert.deepStrictEqual(events, ['launch-start']);
+    releaseFirst();
+    await Promise.all([first, second]);
+    assert.deepStrictEqual(events, ['launch-start', 'launch-end', 'activation']);
+}
+
+async function verifyEmptyStaleLockReclamation(rootDir: string): Promise<void> {
+    const lockPath = path.join(rootDir, '.install-lock');
+    await fs.mkdir(lockPath, { recursive: true });
+    const staleTime = new Date(Date.now() - 3 * 60_000);
+    await fs.utimes(lockPath, staleTime, staleTime);
+
+    await Promise.all([
+        withBrowserExtensionInstallLock({ rootDir }, () => delay(30)),
+        withBrowserExtensionInstallLock({ rootDir }, () => delay(30))
+    ]);
+
+    const entries = await fs.readdir(rootDir);
+    const reclaimed = entries.filter(entry => entry.startsWith('.install-lock-reclaimed-'));
+    assert.strictEqual(reclaimed.length, 1);
+    assert.strictEqual(
+        await fs.readFile(path.join(rootDir, reclaimed[0], '.reclaim-guard'), 'utf8') !== '',
+        true
+    );
+    assert.strictEqual(await pathExists(lockPath), false);
+}
 
 async function withTempInstall(
     callback: (paths: { rootDir: string; sourceRoot: string }) => Promise<void>
@@ -185,4 +274,8 @@ async function pathExists(filePath: string): Promise<boolean> {
         }
         throw error;
     }
+}
+
+function delay(milliseconds: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
 }

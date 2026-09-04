@@ -6,32 +6,46 @@ import { BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
 import { t } from '../i18n';
 import {
-    activatePreparedBrowserExtension,
-    prepareBrowserExtensionInstall,
     resolveDefaultBrowserExtensionRoot,
+    withBrowserExtensionInstallLock,
     type BrowserExtensionBuild,
+    type BrowserExtensionInstallLease,
     type PrepareBrowserExtensionResult
 } from './browserExtensionInstall';
 import { getErrorMessage } from './errorUtils';
+import type { BrowserFamily } from './isolatedBrowserProfiles';
 import {
-    BROWSER_FAMILIES,
-    resolveIsolatedBrowserProfilePaths,
-    type BrowserFamily
-} from './isolatedBrowserProfiles';
-import { getBrowserProfileProcessIds, stopBrowserProfileProcesses } from './processDetection';
+    getBrowserBridgeProcesses,
+    getBrowserProfileProcessIds,
+    stopBrowserBridgeProcesses,
+    stopBrowserProfileProcesses,
+    waitForBrowserProfileBridgeProcess,
+    type BrowserBridgeProcess
+} from './processDetection';
+
+export type BrowserExtensionLaunch = (extensionPath: string) => Promise<boolean>;
+
+export interface BrowserExtensionLaunchOptions {
+    browserFamily: BrowserFamily;
+    profileDir: string;
+    launch: BrowserExtensionLaunch;
+}
 
 export interface BrowserExtensionManager {
     prepareInBackground(): void;
-    ensureReadyForLaunch(): Promise<string | null>;
+    launchWithReadyExtension(options: BrowserExtensionLaunchOptions): Promise<boolean>;
 }
 
-interface RunningIsolatedProfile {
+interface BrowserRestartPlan {
     browserFamily: BrowserFamily;
     profileDir: string;
-    processIds: number[];
+    extensionPath: string;
+    bridgeProcesses: BrowserBridgeProcess[];
+    restartTargetProfile: boolean;
 }
 
 const PREPARATION_PROGRESS_DELAY_MS = 300;
+const COORDINATION_LOCK_TIMEOUT_MS = 5 * 60_000;
 
 export function createBrowserExtensionManager(
     context: vscode.ExtensionContext,
@@ -42,8 +56,7 @@ export function createBrowserExtensionManager(
 
 class DefaultBrowserExtensionManager implements BrowserExtensionManager {
     private readonly rootDir: string;
-    private preparationPromise: Promise<PrepareBrowserExtensionResult> | undefined;
-    private activationPromise: Promise<PrepareBrowserExtensionResult> | undefined;
+    private backgroundPreparation: Promise<void> | undefined;
 
     constructor(
         private readonly context: vscode.ExtensionContext,
@@ -53,43 +66,61 @@ class DefaultBrowserExtensionManager implements BrowserExtensionManager {
     }
 
     prepareInBackground(): void {
-        void this.prepareAndActivateWhenSafe().catch(error => {
+        void this.getBackgroundPreparation().catch(error => {
             this.log(`Background preparation failed: ${getErrorMessage(error)}`);
         });
     }
 
-    async ensureReadyForLaunch(): Promise<string | null> {
+    async launchWithReadyExtension(options: BrowserExtensionLaunchOptions): Promise<boolean> {
         try {
-            let prepared = await this.waitForPreparationWithProgress();
-            if (prepared.status === 'staged') {
-                prepared = this.activationPromise
-                    ? await this.activationPromise
-                    : await this.refreshPreparation();
-            }
-            if (prepared.status === 'newer-installed') {
-                this.showNewerInstalledMessage(prepared.installedBuild);
-                return null;
-            }
-            if (prepared.status === 'ready') {
-                return prepared.extensionPath;
-            }
+            await this.waitForBackgroundPreparationWithProgress();
+            const sourceDir = this.requireBundledSource();
+            return await withBrowserExtensionInstallLock({
+                rootDir: this.rootDir,
+                lockTimeoutMs: COORDINATION_LOCK_TIMEOUT_MS
+            }, async lease => {
+                let prepared = this.validateProtocol(await lease.prepare(sourceDir));
+                if (prepared.status === 'newer-installed') {
+                    this.showNewerInstalledMessage(prepared.installedBuild);
+                    return false;
+                }
 
-            const runningProfiles = await this.findRunningIsolatedProfiles();
-            if (runningProfiles.length > 0 && !await this.confirmAndStopRunningProfiles(runningProfiles)) {
-                return null;
-            }
+                const restartPlan = await this.createRestartPlan(
+                    prepared,
+                    options.browserFamily,
+                    options.profileDir
+                );
+                if (restartPlan && !await this.confirmAndStopRunningBrowsers(restartPlan)) {
+                    return false;
+                }
 
-            const activated = await this.activate(prepared.build);
-            if (activated.status === 'newer-installed') {
-                this.showNewerInstalledMessage(activated.installedBuild);
-                return null;
-            }
-            if (activated.status !== 'ready') {
-                throw new Error('The prepared browser bridge was not activated.');
-            }
-            this.preparationPromise = Promise.resolve(activated);
-            this.log(`Using browser bridge ${activated.build.extensionVersion} from ${activated.extensionPath}.`);
-            return activated.extensionPath;
+                if (prepared.status === 'staged') {
+                    prepared = this.validateProtocol(await lease.activate(prepared.build));
+                }
+
+                if (prepared.status === 'newer-installed') {
+                    this.showNewerInstalledMessage(prepared.installedBuild);
+                    return false;
+                }
+                if (prepared.status !== 'ready') {
+                    throw new Error('The prepared browser bridge was not activated.');
+                }
+
+                const launched = await options.launch(prepared.extensionPath);
+                if (!launched) {
+                    return false;
+                }
+                if (!await waitForBrowserProfileBridgeProcess(
+                    options.browserFamily,
+                    options.profileDir,
+                    prepared.extensionPath
+                )) {
+                    throw new Error('The isolated browser did not expose its WebCode bridge process in time.');
+                }
+
+                this.log(`Using browser bridge ${prepared.build.extensionVersion} from ${prepared.extensionPath}.`);
+                return true;
+            });
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             this.log(`Preparation failed: ${message}`);
@@ -97,133 +128,132 @@ class DefaultBrowserExtensionManager implements BrowserExtensionManager {
                 path: this.rootDir,
                 message
             }));
-            return null;
+            return false;
         }
     }
 
-    private async prepareAndActivateWhenSafe(): Promise<void> {
-        const prepared = await this.getPreparation();
-        if (prepared.status !== 'staged') {
-            if (prepared.status === 'ready') {
-                this.log(`Browser bridge ${prepared.build.extensionVersion} is ready.`);
-            }
-            return;
+    private getBackgroundPreparation(): Promise<void> {
+        if (this.backgroundPreparation) {
+            return this.backgroundPreparation;
         }
 
-        const runningProfiles = await this.findRunningIsolatedProfiles();
-        if (runningProfiles.length > 0) {
-            this.log(`Browser bridge ${prepared.build.extensionVersion} is staged until the isolated browser restarts.`);
-            return;
-        }
-
-        const activated = await this.activate(prepared.build);
-        if (activated.status === 'ready') {
-            this.preparationPromise = Promise.resolve(activated);
-            this.log(`Browser bridge ${activated.build.extensionVersion} prepared at ${activated.extensionPath}.`);
-        }
-    }
-
-    private getPreparation(): Promise<PrepareBrowserExtensionResult> {
-        if (this.preparationPromise) {
-            return this.preparationPromise;
-        }
-
-        const sourceDir = resolveBundledBrowserExtensionSource(this.context);
-        if (!sourceDir) {
-            return Promise.reject(new Error(t('browser_extension_missing')));
-        }
-
-        const preparation = prepareBrowserExtensionInstall({ sourceDir, rootDir: this.rootDir })
-            .then(result => {
-                if (result.status !== 'newer-installed' &&
-                    result.build.bridgeProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
-                    throw new Error(
-                        `Browser bridge protocol ${result.build.bridgeProtocolVersion} does not match ` +
-                        `gateway protocol ${BRIDGE_PROTOCOL_VERSION}.`
-                    );
-                }
-                return result;
-            });
-        this.preparationPromise = preparation;
+        const preparation = this.prepareAndActivateWhenSafe();
+        this.backgroundPreparation = preparation;
         void preparation.catch(() => {
-            if (this.preparationPromise === preparation) {
-                this.preparationPromise = undefined;
+            if (this.backgroundPreparation === preparation) {
+                this.backgroundPreparation = undefined;
             }
         });
         return preparation;
     }
 
-    private activate(build: BrowserExtensionBuild): Promise<PrepareBrowserExtensionResult> {
-        if (this.activationPromise) {
-            return this.activationPromise;
+    private async prepareAndActivateWhenSafe(): Promise<void> {
+        const sourceDir = this.requireBundledSource();
+        await withBrowserExtensionInstallLock({ rootDir: this.rootDir }, async lease => {
+            const prepared = this.validateProtocol(await lease.prepare(sourceDir));
+            await this.activateBackgroundPreparationWhenSafe(prepared, lease);
+        });
+    }
+
+    private async activateBackgroundPreparationWhenSafe(
+        prepared: PrepareBrowserExtensionResult,
+        lease: BrowserExtensionInstallLease
+    ): Promise<void> {
+        if (prepared.status === 'newer-installed') {
+            this.log(`A newer browser bridge ${prepared.installedBuild.extensionVersion} is already installed.`);
+            return;
         }
-        const activation = activatePreparedBrowserExtension({ rootDir: this.rootDir }, build);
-        this.activationPromise = activation;
-        const clearActivation = () => {
-            if (this.activationPromise === activation) {
-                this.activationPromise = undefined;
-            }
-        };
-        void activation.then(clearActivation, clearActivation);
-        return activation;
+        if (prepared.status === 'ready') {
+            this.log(`Browser bridge ${prepared.build.extensionVersion} is ready.`);
+            return;
+        }
+
+        const runningBrowsers = await getBrowserBridgeProcesses(prepared.extensionPath);
+        if (runningBrowsers.length > 0) {
+            this.log(`Browser bridge ${prepared.build.extensionVersion} is staged until the isolated browser restarts.`);
+            return;
+        }
+
+        const activated = this.validateProtocol(await lease.activate(prepared.build));
+        if (activated.status === 'ready') {
+            this.log(`Browser bridge ${activated.build.extensionVersion} prepared at ${activated.extensionPath}.`);
+        }
     }
 
-    private refreshPreparation(): Promise<PrepareBrowserExtensionResult> {
-        this.preparationPromise = undefined;
-        return this.getPreparation();
+    private validateProtocol(result: PrepareBrowserExtensionResult): PrepareBrowserExtensionResult {
+        if (result.status !== 'newer-installed' &&
+            result.build.bridgeProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
+            throw new Error(
+                `Browser bridge protocol ${result.build.bridgeProtocolVersion} does not match ` +
+                `gateway protocol ${BRIDGE_PROTOCOL_VERSION}.`
+            );
+        }
+        return result;
     }
 
-    private async waitForPreparationWithProgress(): Promise<PrepareBrowserExtensionResult> {
-        const preparation = this.getPreparation();
+    private requireBundledSource(): string {
+        const sourceDir = resolveBundledBrowserExtensionSource(this.context);
+        if (!sourceDir) {
+            throw new Error(t('browser_extension_missing'));
+        }
+        return sourceDir;
+    }
+
+    private async waitForBackgroundPreparationWithProgress(): Promise<void> {
+        const preparation = this.getBackgroundPreparation();
         let timer: NodeJS.Timeout | undefined;
         const outcome = await Promise.race([
-            preparation.then(result => ({ kind: 'ready' as const, result })),
-            new Promise<{ kind: 'slow' }>(resolve => {
-                timer = setTimeout(() => resolve({ kind: 'slow' }), PREPARATION_PROGRESS_DELAY_MS);
+            preparation.then(() => 'ready' as const),
+            new Promise<'slow'>(resolve => {
+                timer = setTimeout(() => resolve('slow'), PREPARATION_PROGRESS_DELAY_MS);
             })
         ]);
         if (timer) {
             clearTimeout(timer);
         }
-        if (outcome.kind === 'ready') {
-            return outcome.result;
+        if (outcome === 'ready') {
+            return;
         }
 
-        return vscode.window.withProgress({
+        await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: t('browser_bridge_preparing'),
             cancellable: false
         }, () => preparation);
     }
 
-    private async findRunningIsolatedProfiles(): Promise<RunningIsolatedProfile[]> {
-        const configuredProfileRoot = vscode.workspace
-            .getConfiguration('webcodeGateway')
-            .get<string>('isolatedBrowser.profileRoot');
-        const profiles = BROWSER_FAMILIES.map(browserFamily => {
-            const result = resolveIsolatedBrowserProfilePaths({
-                browserFamily,
-                legacyStorageRoot: this.context.globalStorageUri.fsPath,
-                configuredProfileRoot
-            });
-            if (result.status === 'invalid-profile-root') {
-                throw new Error(t('isolated_profile_root_invalid', {
-                    path: result.configuredProfileRoot
-                }));
-            }
-            return result.paths;
-        });
-
-        const runningProfiles = await Promise.all(profiles.map(async profile => ({
-            browserFamily: profile.browserFamily,
-            profileDir: profile.profileDir,
-            processIds: await getBrowserProfileProcessIds(profile.browserFamily, profile.profileDir)
-        })));
-        return runningProfiles.filter(profile => profile.processIds.length > 0);
+    private async createRestartPlan(
+        prepared: Exclude<PrepareBrowserExtensionResult, { status: 'newer-installed' }>,
+        browserFamily: BrowserFamily,
+        profileDir: string
+    ): Promise<BrowserRestartPlan | null> {
+        const [allBridgeProcesses, profileProcessIds] = await Promise.all([
+            getBrowserBridgeProcesses(prepared.extensionPath),
+            getBrowserProfileProcessIds(browserFamily, profileDir)
+        ]);
+        const bridgeProcessIds = new Set(allBridgeProcesses.map(processInfo => processInfo.pid));
+        const targetUsesActiveBridge = profileProcessIds.some(processId => bridgeProcessIds.has(processId));
+        const bridgeProcesses = prepared.status === 'staged' ? allBridgeProcesses : [];
+        const restartTargetProfile = profileProcessIds.length > 0 &&
+            (prepared.status === 'staged' || !targetUsesActiveBridge);
+        if (bridgeProcesses.length === 0 && !restartTargetProfile) {
+            return null;
+        }
+        return {
+            browserFamily,
+            profileDir,
+            extensionPath: prepared.extensionPath,
+            bridgeProcesses,
+            restartTargetProfile
+        };
     }
 
-    private async confirmAndStopRunningProfiles(profiles: RunningIsolatedProfile[]): Promise<boolean> {
-        const browserNames = [...new Set(profiles.map(profile => getBrowserDisplayName(profile.browserFamily)))].join(' / ');
+    private async confirmAndStopRunningBrowsers(plan: BrowserRestartPlan): Promise<boolean> {
+        const browserFamilies = plan.bridgeProcesses.map(processInfo => processInfo.browserFamily);
+        if (plan.restartTargetProfile) {
+            browserFamilies.push(plan.browserFamily);
+        }
+        const browserNames = [...new Set(browserFamilies.map(getBrowserDisplayName))].join(' / ');
         const restartButton = t('browser_bridge_restart_button');
         const selection = await vscode.window.showWarningMessage(
             t('browser_bridge_restart_required', { browsers: browserNames }),
@@ -234,11 +264,11 @@ class DefaultBrowserExtensionManager implements BrowserExtensionManager {
             return false;
         }
 
-        const results = await Promise.all(profiles.map(profile => stopBrowserProfileProcesses(
-            profile.browserFamily,
-            profile.profileDir
-        ).catch(() => false)));
-        if (results.every(Boolean)) {
+        const bridgeStopped = plan.bridgeProcesses.length === 0 ||
+            await stopBrowserBridgeProcesses(plan.extensionPath).catch(() => false);
+        const profileStopped = !plan.restartTargetProfile ||
+            await stopBrowserProfileProcesses(plan.browserFamily, plan.profileDir).catch(() => false);
+        if (bridgeStopped && profileStopped) {
             return true;
         }
 
@@ -280,6 +310,6 @@ function resolveBundledBrowserExtensionSource(context: vscode.ExtensionContext):
     ) ?? null;
 }
 
-function getBrowserDisplayName(browserFamily: BrowserFamily): string {
-    return browserFamily === 'edge' ? 'Microsoft Edge' : 'Chrome';
+function getBrowserDisplayName(browserFamily: 'edge' | 'chrome'): string {
+    return browserFamily === 'edge' ? 'Microsoft Edge' : 'Chrome / Chromium';
 }
