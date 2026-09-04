@@ -47,7 +47,7 @@ export class ToolActivityOverlay {
   private readonly panel: HTMLDivElement;
   private ticker: ReturnType<typeof setInterval> | null = null;
 
-  public constructor(tracker: ToolActivityTracker, followUpQueue: FollowUpQueue) {
+  public constructor(private readonly tracker: ToolActivityTracker, followUpQueue: FollowUpQueue) {
     const view = createOverlayView();
     this.host = view.host;
     this.launcher = view.launcher;
@@ -61,21 +61,16 @@ export class ToolActivityOverlay {
     this.dragController = new FloatingPanelDragController(this.host);
     this.dragController.bindHandle(this.launcher, true);
     this.bindLauncher();
-    this.followUpComposer = new FollowUpComposer(
-      followUpQueue,
-      (state) => this.handleFollowUpState(state)
-    );
+    this.followUpComposer = new FollowUpComposer(followUpQueue,
+      (state) => this.handleFollowUpState(state));
     this.panel.appendChild(this.followUpComposer.element);
-    tracker.subscribe((snapshot) => this.render(snapshot));
+    this.tracker.subscribe((snapshot) => this.render(snapshot));
   }
 
   public setEnabled(enabled: boolean): void {
     if (this.enabled === enabled) {return;}
     this.enabled = enabled;
-    if (!enabled) {
-      this.expanded = false;
-      this.historyVisible = false;
-    }
+    if (!enabled) {this.expanded = false; this.historyVisible = false;}
     this.render(this.latestSnapshot);
   }
 
@@ -104,17 +99,14 @@ export class ToolActivityOverlay {
     const currentScrollTop = isSameTurn ? this.getCurrentScrollTop() : 0;
     const historyScrollTop = this.getHistoryScrollTop();
     if (latestEntry && !isSameTurn) {this.startTurn(latestEntry.turn.id);}
-    if (!latestEntry) {
-      this.currentTurnId = null;
-      this.dismissedTurnId = null;
-    }
+    if (!latestEntry) {this.currentTurnId = null; this.dismissedTurnId = null;}
 
     const currentEntry = latestEntry && latestEntry.turn.id !== this.dismissedTurnId
       ? latestEntry
       : undefined;
-    const historyEntries = latestEntry ? entries.slice(0, -1).reverse() : [];
+    const historyEntries = currentEntry ? entries.slice(0, -1) : entries;
     this.renderCurrent(currentEntry, historyEntries.length);
-    this.renderHistory(historyEntries);
+    this.renderHistory(historyEntries, currentEntry?.turn.id);
     this.restoreCurrentScrollTop(currentScrollTop);
     this.restoreHistoryScrollTop(historyScrollTop);
     this.syncVisibility(Boolean(currentEntry));
@@ -131,7 +123,7 @@ export class ToolActivityOverlay {
     this.updateLauncher(entry);
   }
 
-  private renderHistory(entries: ToolActivityTurnEntry[]): void {
+  private renderHistory(entries: ToolActivityTurnEntry[], currentTurnId?: string): void {
     const shouldShow = this.expanded && this.historyVisible;
     this.historyPanel.style.display = shouldShow ? "flex" : "none";
     if (!shouldShow) {return;}
@@ -143,14 +135,16 @@ export class ToolActivityOverlay {
     const title = document.createElement("div");
     title.className = "history-title";
     title.textContent = `${t("activity_history")} · ${entries.length}`;
-    header.append(title, this.createHistoryCloseButton());
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+    actions.append(this.createHistoryClearButton(entries.length, currentTurnId), this.createHistoryCloseButton());
+    header.append(title, actions);
 
     const list = document.createElement("div");
     list.className = "history-list";
     if (entries.length === 0) {
       const empty = document.createElement("div");
-      empty.className = "history-empty";
-      empty.textContent = t("activity_no_history");
+      empty.className = "history-empty"; empty.textContent = t("activity_no_history");
       list.appendChild(empty);
     } else {
       entries.forEach((entry) => list.appendChild(createHistoryTurn(entry)));
@@ -204,10 +198,15 @@ export class ToolActivityOverlay {
 
   private createHistoryCloseButton(): HTMLButtonElement {
     const button = createIconButton("×", t("activity_hide_history"), "icon-button close");
-    button.onclick = () => {
-      this.historyVisible = false;
-      this.render(this.latestSnapshot);
-    };
+    button.onclick = () => {this.historyVisible = false; this.render(this.latestSnapshot);};
+    return button;
+  }
+
+  private createHistoryClearButton(historyCount: number, currentTurnId?: string): HTMLButtonElement {
+    const button = createIconButton(t("activity_clear"), t("activity_clear_history"),
+      "history-clear-button");
+    button.disabled = historyCount === 0;
+    button.onclick = button.disabled ? null : () => this.tracker.clearHistory(currentTurnId);
     return button;
   }
 

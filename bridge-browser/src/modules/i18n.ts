@@ -77,6 +77,8 @@ const I18N_MESSAGES: Record<string, { en: string; zh: string }> = {
   activity_minimize: { en: "Minimize", zh: "收起" },
   activity_expand: { en: "Expand", zh: "展开" },
   activity_close: { en: "Close", zh: "关闭" },
+  activity_clear: { en: "Clear", zh: "清除" },
+  activity_clear_history: { en: "Clear history", zh: "清除历史记录" },
   activity_history: { en: "History", zh: "历史" },
   activity_show_history: { en: "Show history", zh: "显示历史" },
   activity_hide_history: { en: "Hide history", zh: "隐藏历史" },

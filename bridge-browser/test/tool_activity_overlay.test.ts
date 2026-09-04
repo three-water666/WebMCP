@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   runTest("history opens as a separate detailed block and keeps current status live", () => {
     testDetailedHistoryBlock(ToolActivityOverlay);
   });
-  runTest("a new turn stays current while the prior turn enters detailed history", () => {
+  runTest("prior turns enter detailed history in chronological order", () => {
     testNewTurnUpdatesHistory(ToolActivityOverlay);
   });
   runTest("current and historical tools show their capture source", () => {
@@ -54,6 +54,9 @@ async function main(): Promise<void> {
   });
   runTest("header action positions stay stable while close availability changes", () => {
     testStableHeaderActions(ToolActivityOverlay);
+  });
+  runTest("closing archives current activity and history can be cleared", () => {
+    testArchiveAndClearHistory(ToolActivityOverlay);
   });
 }
 
@@ -98,6 +101,12 @@ function testNewTurnUpdatesHistory(Overlay: OverlayConstructor): void {
   assertIncludes(harness.panel.getText(), "write_file", "new tool call was not shown as current");
   assertIncludes(getRequired(harness.stack, ".history-list").getText(), "read_file", "prior tool call did not enter history");
   assertIncludes(getRequired(harness.panel, ".history-button").getText(), "(1)", "history count did not update");
+
+  captureTurn(harness.tracker, "turn-3", "execute_command");
+  const historyText = getRequired(harness.stack, ".history-list").getText();
+  assertBefore(historyText, "read_file", "write_file", "history was not ordered oldest first");
+  assertIncludes(harness.panel.getText(), "execute_command", "latest tool call was not shown as current");
+  assertIncludes(getRequired(harness.panel, ".history-button").getText(), "(2)", "history count did not update");
 }
 
 function testUnifiedBoundedDragging(Overlay: OverlayConstructor): void {
@@ -209,6 +218,30 @@ function testStableHeaderActions(Overlay: OverlayConstructor): void {
   assertHeaderActions(harness.panel, true);
 }
 
+function testArchiveAndClearHistory(Overlay: OverlayConstructor): void {
+  const harness = createHarness(Overlay);
+  const firstKey = captureTurn(harness.tracker, "turn-1", "read_file");
+  settleTurn(harness.tracker, firstKey);
+  getRequired(harness.panel, ".close").click();
+
+  assertIncludes(getRequired(harness.panel, ".history-button").getText(), "(1)",
+    "closing current activity did not increase history count");
+  getRequired(harness.panel, ".history-button").click();
+  assertIncludes(getRequired(harness.stack, ".history-list").getText(), "read_file",
+    "closed current activity was not archived");
+  getRequired(harness.stack, ".history-clear-button").click();
+  assertIncludes(getRequired(harness.stack, ".history-list").getText(), "No previous",
+    "clear history did not remove archived activity");
+
+  const secondKey = captureTurn(harness.tracker, "turn-2", "write_file");
+  settleTurn(harness.tracker, secondKey);
+  captureTurn(harness.tracker, "turn-3", "execute_command");
+  getRequired(harness.stack, ".history-clear-button").click();
+  assertIncludes(harness.panel.getText(), "execute_command", "clearing history removed current activity");
+  assertIncludes(getRequired(harness.stack, ".history-list").getText(), "No previous",
+    "clear history did not remove prior activity");
+}
+
 function assertHeaderActions(panel: FakeElement, closeDisabled: boolean): void {
   const actions = getRequired(panel, ".actions");
   assertEqual(actions.children.length, 3, "header action slot count changed");
@@ -299,6 +332,14 @@ function assertEqual(actual: unknown, expected: unknown, message: string): void 
 function assertIncludes(actual: string, expected: string, message: string): void {
   if (!actual.includes(expected)) {
     throw new Error(`${message}: expected '${actual}' to include '${expected}'`);
+  }
+}
+
+function assertBefore(actual: string, first: string, second: string, message: string): void {
+  const firstIndex = actual.indexOf(first);
+  const secondIndex = actual.indexOf(second);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex >= secondIndex) {
+    throw new Error(`${message}: expected '${first}' before '${second}' in '${actual}'`);
   }
 }
 

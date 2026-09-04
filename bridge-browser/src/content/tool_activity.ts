@@ -159,6 +159,17 @@ export class ToolActivityTracker {
     this.emit();
   }
 
+  public clearHistory(preservedTurnId?: string): void {
+    let changed = false;
+    for (const [turnId, turn] of this.turns) {
+      if (turnId === preservedTurnId) {continue;}
+      turn.requestKeys.forEach((requestKey) => this.items.delete(requestKey));
+      this.turns.delete(turnId);
+      changed = true;
+    }
+    if (changed) {this.emit();}
+  }
+
   public reset(): void {
     if (this.items.size === 0 && this.turns.size === 0) {return;}
     this.items.clear();
