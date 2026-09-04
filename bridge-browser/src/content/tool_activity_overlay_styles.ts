@@ -51,14 +51,15 @@ export const TOOL_ACTIVITY_STYLE_TEXT = `
   .mark.error { background: #b91c1c; }
   .title, .history-title { overflow: hidden; color: #f9fafb; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
   .summary { overflow: hidden; margin-top: 1px; color: #aeb5c2; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-  .actions { flex: 0 0 auto; display: flex; gap: 3px; }
+  .actions { width: 124px; flex: 0 0 auto; display: flex; gap: 3px; }
   .icon-button, .history-button { height: 25px; padding: 0; border: 0; border-radius: 6px; color: #c8ced8;
     background: transparent; cursor: pointer; }
   .icon-button { width: 25px; }
-  .history-button { width: auto; padding: 0 7px; font-size: 10px; white-space: nowrap; }
+  .history-button { width: 68px; padding: 0 7px; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .history-button.active { color: #dbeafe; background: rgba(37, 99, 235, .22); }
-  .icon-button:hover, .history-button:hover { color: #fff; background: rgba(255, 255, 255, .1); }
-  .icon-button.close:hover { background: #8f1d1d; }
+  .icon-button:not(:disabled):hover, .history-button:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+  .icon-button.close:not(:disabled):hover { background: #8f1d1d; }
+  .icon-button:disabled { opacity: .35; cursor: default; }
   .list { min-height: 0; flex: 1 1 auto; overflow-y: auto; border-top: 1px solid #343942; }
   .row { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
   .status-dot { width: 8px; height: 8px; flex: 0 0 auto; margin-top: 5px; border-radius: 50%; background: #718096; }

@@ -181,10 +181,8 @@ export class ToolActivityOverlay {
 
     const actions = document.createElement("div");
     actions.className = "actions";
-    actions.append(this.createHistoryButton(historyCount), this.createCollapseButton());
-    if (entry && isTurnSettled(entry.turn)) {
-      actions.appendChild(this.createCloseButton(entry.turn.id));
-    }
+    actions.append(this.createHistoryButton(historyCount), this.createCollapseButton(),
+      this.createCloseButton(entry));
     header.append(identity, actions);
     return header;
   }
@@ -219,9 +217,11 @@ export class ToolActivityOverlay {
     return button;
   }
 
-  private createCloseButton(turnId: string): HTMLButtonElement {
+  private createCloseButton(entry: ToolActivityTurnEntry | undefined): HTMLButtonElement {
     const button = createIconButton("×", t("activity_close"), "icon-button close");
-    button.onclick = () => {
+    const turnId = entry && isTurnSettled(entry.turn) ? entry.turn.id : null;
+    button.disabled = turnId === null;
+    button.onclick = turnId === null ? null : () => {
       this.dismissedTurnId = turnId;
       this.render(this.latestSnapshot);
     };

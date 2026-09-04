@@ -52,6 +52,9 @@ async function main(): Promise<void> {
   runTest("repeated enable updates do not rerender the work panel", () => {
     testIdempotentEnabledState(ToolActivityOverlay);
   });
+  runTest("header action positions stay stable while close availability changes", () => {
+    testStableHeaderActions(ToolActivityOverlay);
+  });
 }
 
 function testDetailedHistoryBlock(Overlay: OverlayConstructor): void {
@@ -187,6 +190,32 @@ function testIdempotentEnabledState(Overlay: OverlayConstructor): void {
     header,
     "repeated enabled state replaced the panel DOM"
   );
+}
+
+function testStableHeaderActions(Overlay: OverlayConstructor): void {
+  const harness = createHarness(Overlay, false);
+  assertHeaderActions(harness.panel, true);
+
+  const requestKey = captureTurn(harness.tracker, "turn-1", "read_file");
+  harness.tracker.updateStatus({ requestKey }, "executing");
+  assertHeaderActions(harness.panel, true);
+
+  settleTurn(harness.tracker, requestKey);
+  assertHeaderActions(harness.panel, false);
+  getRequired(harness.panel, ".close").click();
+  assertHeaderActions(harness.panel, true);
+
+  captureTurn(harness.tracker, "turn-2", "write_file");
+  assertHeaderActions(harness.panel, true);
+}
+
+function assertHeaderActions(panel: FakeElement, closeDisabled: boolean): void {
+  const actions = getRequired(panel, ".actions");
+  assertEqual(actions.children.length, 3, "header action slot count changed");
+  assert(actions.children[0]?.className.includes("history-button"), "history action moved");
+  assert(actions.children[1]?.className.includes("collapse"), "collapse action moved");
+  assert(actions.children[2]?.className.includes("close"), "close action moved");
+  assertEqual(actions.children[2]?.disabled, closeDisabled, "close availability was incorrect");
 }
 
 function createHarness(Overlay: OverlayConstructor, expand = true): OverlayHarness {
