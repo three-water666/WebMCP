@@ -10,9 +10,10 @@ import {
 } from "../types";
 import { AutoInitPromptController } from "./auto_init_prompt";
 import { createApprovalState, parseStoredApprovalEntries, type ApprovalState } from "./approval_policy";
-import { CompletionNotifier } from "./completion_notifier";
 import { DomToolActivityController } from "./dom_tool_activity";
 import { DomToolTurnController } from "./dom_tool_turn";
+import { FollowUpQueue } from "./follow_up_queue";
+import { FollowUpWorkController, OBSERVED_PAGE_WORK_ATTRIBUTES } from "./follow_up_work_controller";
 import { hasPromptResourceChange, loadPromptsFromStorage } from "./prompt_resources";
 import { createNetworkCaptureRuntime } from "./network_capture_runtime";
 import { ResultDeliveryController } from "./result_delivery_controller";
@@ -25,17 +26,7 @@ import { ToolRequestRegistry } from "./tool_request_registry";
 import { logVirtualizedHistorySkip } from "./virtualized_history_skip";
 
 // === 配置与状态 ===
-const CONFIG = {
-  pollInterval: 1000,
-  autoSend: true,
-  autoApproveTools: false,
-};
-
-const OBSERVED_STATE_ATTRIBUTES = [
-  "aria-busy", "aria-disabled", "aria-hidden", "aria-label", "class",
-  "data-disabled", "data-loading", "data-state", "data-test-id", "data-testid",
-  "data-visible", "disabled", "hidden", "inert", "style", "title",
-];
+const CONFIG = { pollInterval: 1000, autoSend: true, autoApproveTools: false };
 
 // [State] Connection Guard
 let isClientConnected = false;
@@ -139,7 +130,7 @@ async function refreshConnectedState(): Promise<void> {
   await loadPromptsFromStorage();
   autoInitPrompt.scheduleCheck();
   if (DOM) {
-    completionNotifier.observe(DOM);
+    followUpWork.observe(DOM);
   }
   runMainLoop();
 }
@@ -197,11 +188,12 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
     domToolActivity.reset();
     domToolTurns.reset();
     networkCapture.configure(getSiteNetworkCaptureConfig(matchedSite.capture));
-    completionNotifier.reset();
+    followUpWork.reset();
     autoInitPrompt.setupTrigger();
     void loadPromptsFromStorage();
     autoInitPrompt.scheduleCheck();
     startObserver();
+    followUpWork.observe(DOM);
     return;
   }
 
@@ -210,6 +202,7 @@ function applySyncedSiteConfig(siteId: string, sites: SyncedAiSite[]): void {
   domToolActivity.reset();
   domToolTurns.reset();
   networkCapture.reset();
+  followUpWork.reset();
   console.log(`${BRANDING.productName}: Site '${siteId}' is not configured in VS Code. Idle.`);
 }
 
@@ -217,6 +210,7 @@ function resetCurrentSite(): void {
   domToolActivity.reset();
   domToolTurns.reset();
   networkCapture.reset();
+  followUpWork.reset();
   DOM = null;
   currentSiteName = null;
   currentSiteId = null;
@@ -248,9 +242,9 @@ const requestRegistry = new ToolRequestRegistry();
 const toolActivityTracker = new ToolActivityTracker();
 const domToolActivity = new DomToolActivityController(toolActivityTracker);
 const domToolTurns = new DomToolTurnController(requestRegistry);
-new ToolActivityOverlay(toolActivityTracker);
-let lastProgressLogTime = 0;
-let lastProgressStatus = "";
+const followUpQueue = new FollowUpQueue();
+const workPanel = new ToolActivityOverlay(toolActivityTracker, followUpQueue);
+let lastProgressLogTime = 0, lastProgressStatus = "";
 
 // === 性能优化: MutationObserver 取代 setInterval ===
 // 主循环调度锁。DOM 变化、工具完成、协议错误稳定性检查都可能频繁触发 runMainLoop；
@@ -291,6 +285,7 @@ const networkCapture = createNetworkCaptureRuntime({
 });
 
 const resultDelivery = new ResultDeliveryController({
+  followUpQueue,
   getAutoSend: () => CONFIG.autoSend,
   hasPendingTurns: () => networkCapture.hasPendingTurns(),
   onBatchFinalized: (requestKeys) => domToolTurns.finalizeRequests(requestKeys),
@@ -299,7 +294,11 @@ const resultDelivery = new ResultDeliveryController({
   toolActivityTracker,
 });
 
-const completionNotifier = new CompletionNotifier();
+const followUpWork = new FollowUpWorkController(workPanel, () => {
+  if (DOM && !networkCapture.hasPendingTurns()) {
+    resultDelivery.deliverFollowUps(DOM);
+  }
+});
 
 /**
  * 延迟调度一次主循环扫描。
@@ -492,7 +491,7 @@ const observer = new MutationObserver(() => {
   if (!isClientConnected) { return; }
 
   if (DOM) {
-    completionNotifier.observe(DOM);
+    followUpWork.observe(DOM);
   }
 
   // DOM 变化只说明页面可能出现了新内容；延迟扫描能等待流式文本继续补全。
@@ -516,7 +515,7 @@ function startObserver() {
   // 1. Start observing immediately (but logic inside is guarded by isClientConnected)
   observer.observe(document.body, {
     attributes: true,
-    attributeFilter: OBSERVED_STATE_ATTRIBUTES,
+    attributeFilter: OBSERVED_PAGE_WORK_ATTRIBUTES,
     childList: true,
     subtree: true,
     characterData: true
@@ -535,7 +534,7 @@ function startObserver() {
       // 连接恢复后先检查自动初始化触发词，再立刻扫描现有消息，避免等待下一次页面变化。
       autoInitPrompt.scheduleCheck();
       if (DOM) {
-        completionNotifier.observe(DOM);
+        followUpWork.observe(DOM);
       }
       runMainLoop();
     } else {

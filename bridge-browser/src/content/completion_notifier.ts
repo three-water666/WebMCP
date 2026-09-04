@@ -11,6 +11,10 @@ interface LatestResponseSnapshot {
   hasToolCall: boolean;
 }
 
+interface CompletionNotifierOptions {
+  onCompletedWithoutTools?: () => void;
+}
+
 const NO_RESPONSE_SIGNATURE = "no-response";
 const COMPLETION_SETTLE_MS = 600;
 const COMPLETION_NOTIFICATION_COOLDOWN_MS = 1000;
@@ -22,6 +26,8 @@ export class CompletionNotifier {
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private lastNotificationTime = 0;
   private readonly notifiedCompletionKeys = new Set<string>();
+
+  public constructor(private readonly options: CompletionNotifierOptions = {}) {}
 
   public reset(): void {
     this.clearCompletionTimer();
@@ -86,19 +92,21 @@ export class CompletionNotifier {
       return;
     }
 
-    const now = Date.now();
-    if (now - this.lastNotificationTime < COMPLETION_NOTIFICATION_COOLDOWN_MS) {
-      return;
-    }
-
     this.notifiedCompletionKeys.add(completionKey);
-    this.lastNotificationTime = now;
+    this.options.onCompletedWithoutTools?.();
     if (this.notifiedCompletionKeys.size > MAX_NOTIFIED_COMPLETION_KEYS) {
       const oldestKey = this.notifiedCompletionKeys.values().next().value;
       if (typeof oldestKey === "string") {
         this.notifiedCompletionKeys.delete(oldestKey);
       }
     }
+
+    const now = Date.now();
+    if (now - this.lastNotificationTime < COMPLETION_NOTIFICATION_COOLDOWN_MS) {
+      return;
+    }
+
+    this.lastNotificationTime = now;
 
     void requestCompletionAttention().then((result) => {
       if (result === "sent") {

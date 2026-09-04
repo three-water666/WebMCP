@@ -76,6 +76,10 @@
       "matches": [
         "<all_urls>"
       ],
+      "exclude_matches": [
+        "http://127.0.0.1/bridge*",
+        "http://localhost/bridge*"
+      ],
       "js": ["public/generated/network_capture_main.js"],
       "run_at": "document_start",
       "world": "MAIN"
@@ -83,6 +87,10 @@
     {
       "matches": [
         "<all_urls>"
+      ],
+      "exclude_matches": [
+        "http://127.0.0.1/bridge*",
+        "http://localhost/bridge*"
       ],
       "js": ["src/content/main.ts"]
     }

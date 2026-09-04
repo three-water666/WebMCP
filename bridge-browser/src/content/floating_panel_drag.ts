@@ -1,4 +1,5 @@
 const DEFAULT_VIEWPORT_MARGIN = 8;
+const DRAG_THRESHOLD_PX = 4;
 
 export interface FloatingPanelPosition {
   left: number;
@@ -11,6 +12,7 @@ export interface FloatingPanelSize {
 }
 
 interface DragState {
+  hasMoved: boolean;
   initialLeft: number;
   initialTop: number;
   pointerX: number;
@@ -35,6 +37,7 @@ export class FloatingPanelDragController {
   private clampFrame: number | null = null;
   private dragState: DragState | null = null;
   private positioned = false;
+  private suppressNextClick = false;
 
   public constructor(private readonly host: HTMLElement) {
     window.addEventListener("mousemove", this.handleMouseMove);
@@ -42,8 +45,14 @@ export class FloatingPanelDragController {
     window.addEventListener("resize", this.scheduleClamp);
   }
 
-  public bindHandle(handle: HTMLElement): void {
-    handle.onmousedown = (event) => this.startDrag(event);
+  public bindHandle(handle: HTMLElement, allowButtonTarget = false): void {
+    handle.onmousedown = (event) => this.startDrag(event, allowButtonTarget);
+  }
+
+  public consumeDragClick(): boolean {
+    const shouldSuppress = this.suppressNextClick;
+    this.suppressNextClick = false;
+    return shouldSuppress;
   }
 
   public scheduleClamp = (): void => {
@@ -54,32 +63,42 @@ export class FloatingPanelDragController {
     });
   };
 
-  private startDrag(event: MouseEvent): void {
-    if (event.button !== 0 || (event.target as Element | null)?.closest?.("button")) {return;}
+  private startDrag(event: MouseEvent, allowButtonTarget: boolean): void {
+    this.suppressNextClick = false;
+    if (
+      event.button !== 0 ||
+      (!allowButtonTarget && (event.target as Element | null)?.closest?.("button"))
+    ) {return;}
     const rect = this.host.getBoundingClientRect();
     this.dragState = {
+      hasMoved: false,
       initialLeft: rect.left,
       initialTop: rect.top,
       pointerX: event.clientX,
       pointerY: event.clientY,
     };
-    this.positioned = true;
-    this.applyPosition({ left: rect.left, top: rect.top }, rect);
     event.preventDefault();
     event.stopPropagation();
   }
 
   private readonly handleMouseMove = (event: MouseEvent): void => {
     if (!this.dragState) {return;}
+    const deltaX = event.clientX - this.dragState.pointerX;
+    const deltaY = event.clientY - this.dragState.pointerY;
+    if (!this.dragState.hasMoved && Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD_PX) {return;}
+
+    this.dragState.hasMoved = true;
+    this.positioned = true;
     const rect = this.host.getBoundingClientRect();
     this.applyPosition({
-      left: this.dragState.initialLeft + event.clientX - this.dragState.pointerX,
-      top: this.dragState.initialTop + event.clientY - this.dragState.pointerY,
+      left: this.dragState.initialLeft + deltaX,
+      top: this.dragState.initialTop + deltaY,
     }, rect);
     event.preventDefault();
   };
 
   private readonly handleMouseUp = (): void => {
+    this.suppressNextClick = this.dragState?.hasMoved ?? false;
     this.dragState = null;
   };
 

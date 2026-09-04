@@ -3,6 +3,7 @@ import { type SiteSelectors } from "./config";
 import { i18n, t } from "./i18n";
 import { Logger } from "./logger";
 import { delay } from "./dom_helpers";
+import { preserveActiveElement } from "./focus_preservation";
 import { getInputAreaBySelector, getInputAreaElement } from "./page_selectors";
 import { showUserAttentionNotification } from "./user_attention";
 import {
@@ -27,10 +28,7 @@ export interface DeliverResultStatus {
   attemptedUpload: boolean;
 }
 
-interface InputWriteResult {
-  delivered: boolean;
-  attemptedWrite: boolean;
-}
+interface InputWriteResult { delivered: boolean; attemptedWrite: boolean; }
 
 export interface AttachmentPasteDispatchResult {
   acknowledged: boolean;
@@ -77,27 +75,29 @@ export function replaceInputBoxText(text: string, inputSelector: string): boolea
 }
 
 function setInputBoxText(text: string, inputEl: HTMLElement | HTMLInputElement | HTMLTextAreaElement, forceFallback = false) {
-  inputEl.focus();
-  let success = false;
+  preserveActiveElement(() => {
+    inputEl.focus();
+    let success = false;
 
-  if (!forceFallback) {
-    try {
-      const selected = document.execCommand("selectAll", false);
-      success = selected && document.execCommand("insertText", false, text);
-    } catch {
+    if (!forceFallback) {
+      try {
+        const selected = document.execCommand("selectAll", false);
+        success = selected && document.execCommand("insertText", false, text);
+      } catch {
+      }
     }
-  }
 
-  if (!success) {
-    if (isTextControl(inputEl)) {
-      setTextControlValue(inputEl, text);
-    } else {
-      inputEl.innerText = text;
+    if (!success) {
+      if (isTextControl(inputEl)) {
+        setTextControlValue(inputEl, text);
+      } else {
+        inputEl.innerText = text;
+      }
     }
-  }
 
-  inputEl.dispatchEvent(new Event("input", { bubbles: true }));
-  inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+    inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 }
 
 /**
@@ -468,17 +468,19 @@ export function pasteFilesAsAttachments(
     const clipboardData = new DataTransfer();
     files.forEach((file) => clipboardData.items.add(file));
 
-    inputEl.focus();
-    const pasteEvent = new ClipboardEvent("paste", {
-      bubbles: true,
-      cancelable: true,
-      clipboardData,
+    return preserveActiveElement(() => {
+      inputEl.focus();
+      const pasteEvent = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData,
+      });
+      const notCanceled = inputEl.dispatchEvent(pasteEvent);
+      return {
+        acknowledged: isPasteEventAcknowledged(notCanceled, pasteEvent.defaultPrevented),
+        dispatched: true,
+      };
     });
-    const notCanceled = inputEl.dispatchEvent(pasteEvent);
-    return {
-      acknowledged: isPasteEventAcknowledged(notCanceled, pasteEvent.defaultPrevented),
-      dispatched: true,
-    };
   } catch (error) {
     const reason = `The simulated paste event failed: ${getErrorMessage(error)}.`;
     Logger.log(`Attachment paste dispatch failed: ${reason}`, "warn");

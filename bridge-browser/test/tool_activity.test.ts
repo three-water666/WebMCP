@@ -10,8 +10,33 @@ import {
 
 function main(): void {
   runTest("activity history retains only the latest eight turns", testRetainsLatestEightTurns);
+  runTest("clearing history preserves the selected current turn", testClearHistory);
   runTest("approval UI stays above tool activity", testApprovalLayerPriority);
   runTest("floating activity stays inside every viewport edge", testFloatingPanelBounds);
+}
+
+function testClearHistory(): void {
+  const tracker = new ToolActivityTracker();
+  let snapshot: ToolActivitySnapshot = { items: [], turns: [] };
+  tracker.subscribe((value) => {snapshot = value;});
+
+  for (let index = 1; index <= 3; index += 1) {
+    tracker.capture({
+      identity: { requestKey: `request-${index}` },
+      payload: { name: `tool-${index}` },
+      source: "dom",
+      turnId: `turn-${index}`,
+    });
+  }
+
+  tracker.clearHistory("turn-3");
+  assertEqual(snapshot.turns.length, 1, "historical turns were not cleared");
+  assertEqual(snapshot.items.length, 1, "historical activity items were not cleared");
+  assertEqual(snapshot.turns[0]?.id, "turn-3", "current turn was cleared with history");
+
+  tracker.clearHistory();
+  assertEqual(snapshot.turns.length, 0, "archived current turn was not clearable");
+  assertEqual(snapshot.items.length, 0, "archived current activity was not clearable");
 }
 
 function testRetainsLatestEightTurns(): void {
