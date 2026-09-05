@@ -1,6 +1,6 @@
 import { BRANDING, BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
-import { type HandshakeResponse, isStoredSession, type MessageRequest } from '../types';
+import { type HandshakeMessageRequest, type HandshakeResponse, isStoredSession } from '../types';
 import { updateBadge } from './badge';
 import {
   getBridgeRedemptionError,
@@ -27,7 +27,10 @@ type BridgeRedemptionResult =
 
 const BRIDGE_REDEMPTION_TIMEOUT_MS = 5000;
 
-export async function handleHandshake(request: MessageRequest, tabId: number | null | undefined): Promise<HandshakeResponse> {
+export async function handleHandshake(
+  request: HandshakeMessageRequest,
+  tabId: number | null | undefined
+): Promise<HandshakeResponse> {
   const params = getHandshakeParams(request);
 
   if (!tabId) {return { success: false, error: "No Tab ID" };}
@@ -127,7 +130,7 @@ function ignoreRuntimeError(_error: unknown): void {
   void chrome.runtime.lastError;
 }
 
-function getHandshakeParams(request: MessageRequest): HandshakeParams | null {
+function getHandshakeParams(request: HandshakeMessageRequest): HandshakeParams | null {
   if (
     !isValidPort(request.port) ||
     !isNonEmptyString(request.bridgeCode) ||
@@ -154,11 +157,7 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function isCompatibleExtensionVersions(request: MessageRequest): request is MessageRequest & {
-  bridgeProtocolVersion: number;
-  vscodeExtensionVersion: string;
-  browserExtensionVersion: string;
-} {
+function isCompatibleExtensionVersions(request: HandshakeMessageRequest): boolean {
   const currentBrowserVersion = chrome.runtime.getManifest().version;
 
   return isNonEmptyString(request.vscodeExtensionVersion) &&
