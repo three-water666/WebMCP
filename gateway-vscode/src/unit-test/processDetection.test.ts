@@ -2,11 +2,14 @@ import * as assert from 'assert';
 import * as path from 'path';
 
 import {
+    executeFileText,
+    getBrowserFamilyForExecutableName
+} from '../extension/browserProcessList';
+import {
     browserArgumentsUseProfile,
     browserCommandLineUsesProfile,
     commandLineHasExactArgument,
     getBrowserBridgeMarkerArgument,
-    getBrowserFamilyForExecutableName,
     getBrowserProfileMarkerArgument
 } from '../extension/processDetection';
 
@@ -148,5 +151,15 @@ suite('Browser process detection', () => {
         assert.strictEqual(getBrowserFamilyForExecutableName('chrome-for-testing.exe', 'win32'), 'chrome');
         assert.strictEqual(getBrowserFamilyForExecutableName('chromium.exe', 'win32'), 'chrome');
         assert.strictEqual(getBrowserFamilyForExecutableName('msedge.exe', 'win32'), 'edge');
+    });
+
+    test('captures process command output larger than the execFile default buffer', async () => {
+        const outputSize = 2 * 1024 * 1024;
+        const output = await executeFileText(process.execPath, [
+            '-e',
+            `process.stdout.write('x'.repeat(${outputSize}))`
+        ]);
+
+        assert.strictEqual(output.length, outputSize);
     });
 });

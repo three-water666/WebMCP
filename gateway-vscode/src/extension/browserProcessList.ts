@@ -4,6 +4,8 @@ import * as path from 'path';
 
 import type { BrowserFamily } from './isolatedBrowserProfiles';
 
+const PROCESS_LIST_MAX_BUFFER = 64 * 1024 * 1024;
+
 export interface BrowserProcessInfo {
     pid: number;
     commandLine: string;
@@ -125,7 +127,7 @@ export async function stopBrowserProcess(processId: number, platform: NodeJS.Pla
 
 export function executeFileText(command: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-        execFile(command, args, (error, stdout) => {
+        execFile(command, args, { encoding: 'utf8', maxBuffer: PROCESS_LIST_MAX_BUFFER }, (error, stdout) => {
             if (error) {
                 reject(new Error(error.message));
                 return;

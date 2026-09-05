@@ -4,7 +4,6 @@ import * as path from 'path';
 
 const INSTALL_LOCK_DIR_NAME = '.install-lock';
 const INSTALL_LOCK_OWNER_FILE = 'owner.json';
-const INSTALL_LOCK_CANDIDATE_PREFIX = '.install-lock-candidate-';
 const INSTALL_LOCK_RECLAIMED_PREFIX = '.install-lock-reclaimed-';
 const INSTALL_LOCK_RECLAIM_GUARD_FILE = '.reclaim-guard';
 const STALE_LOCK_MS = 2 * 60_000;
@@ -36,46 +35,40 @@ async function acquireInstallLock(
     const lockPath = path.join(rootDir, INSTALL_LOCK_DIR_NAME);
     const ownerPath = path.join(lockPath, INSTALL_LOCK_OWNER_FILE);
     const token = crypto.randomUUID();
-    const candidatePath = path.join(rootDir, `${INSTALL_LOCK_CANDIDATE_PREFIX}${token}`);
     const deadline = Date.now() + timeoutMs;
-    let acquired = false;
 
-    await fs.mkdir(candidatePath);
-    await fs.writeFile(path.join(candidatePath, INSTALL_LOCK_OWNER_FILE), JSON.stringify({
-        pid: process.pid,
-        token,
-        createdAt: new Date().toISOString()
-    }), 'utf8');
-
-    try {
-        while (true) {
+    while (true) {
+        try {
+            await fs.mkdir(lockPath);
             try {
-                await fs.rename(candidatePath, lockPath);
-                acquired = true;
-                return async () => {
-                    const owner = await readLockOwner(ownerPath);
-                    if (owner?.token === token) {
-                        await fs.rm(lockPath, { recursive: true, force: true });
-                    }
-                };
+                await fs.writeFile(ownerPath, JSON.stringify({
+                    pid: process.pid,
+                    token,
+                    createdAt: new Date().toISOString()
+                }), 'utf8');
             } catch (error: unknown) {
-                if (!await pathExists(lockPath)) {
-                    throw error;
+                await fs.rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
+                throw error;
+            }
+            return async () => {
+                const owner = await readLockOwner(ownerPath);
+                if (owner?.token === token) {
+                    await fs.rm(lockPath, { recursive: true, force: true });
                 }
+            };
+        } catch (error: unknown) {
+            if (!hasErrorCode(error, 'EEXIST')) {
+                throw error;
             }
+        }
 
-            if (await reclaimStaleInstallLock(rootDir, lockPath)) {
-                continue;
-            }
-            if (Date.now() >= deadline) {
-                throw new Error(`Timed out waiting for browser bridge installation lock at ${lockPath}.`);
-            }
-            await delay(LOCK_RETRY_MS);
+        if (await reclaimStaleInstallLock(rootDir, lockPath)) {
+            continue;
         }
-    } finally {
-        if (!acquired) {
-            await fs.rm(candidatePath, { recursive: true, force: true }).catch(() => undefined);
+        if (Date.now() >= deadline) {
+            throw new Error(`Timed out waiting for browser bridge installation lock at ${lockPath}.`);
         }
+        await delay(LOCK_RETRY_MS);
     }
 }
 
