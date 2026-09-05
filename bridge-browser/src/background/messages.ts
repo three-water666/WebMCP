@@ -41,8 +41,7 @@ function dispatchRuntimeMessage(
 
   switch (request.type) {
     case "HANDSHAKE":
-      respondAsync(handleHandshake(request, currentTabId), sendResponse);
-      return true;
+      return handleHandshakeRuntimeMessage(request, sender, currentTabId, sendResponse);
     case "GET_STATUS":
       handleGetStatus(request, sender, sendResponse);
       return true;
@@ -69,6 +68,40 @@ function dispatchRuntimeMessage(
       return true;
     default:
       return false;
+  }
+}
+
+function handleHandshakeRuntimeMessage(
+  request: Extract<MessageRequest, { type: "HANDSHAKE" }>,
+  sender: chrome.runtime.MessageSender,
+  currentTabId: number | null | undefined,
+  sendResponse: SendResponse
+): boolean {
+  if (!isValidHandshakeSender(request, sender)) {
+    sendResponse({ success: false, error: "Invalid handshake source" });
+    return true;
+  }
+
+  respondAsync(handleHandshake(request, currentTabId), sendResponse);
+  return true;
+}
+
+function isValidHandshakeSender(
+  request: Extract<MessageRequest, { type: "HANDSHAKE" }>,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (sender.id !== chrome.runtime.id || !sender.tab?.id || !sender.url || typeof request.port !== "number") {
+    return false;
+  }
+
+  try {
+    const url = new URL(sender.url);
+    return url.protocol === "http:" &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      url.pathname === "/bridge" &&
+      Number(url.port) === request.port;
+  } catch {
+    return false;
   }
 }
 

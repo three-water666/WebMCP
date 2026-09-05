@@ -4,9 +4,12 @@ import type { Server as HttpServer } from 'http';
 import type { AddressInfo } from 'net';
 import { BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
-import { registerBridgeRoute } from '../gateway/bridgeRoute';
+import { isAllowedBridgeRedemptionOrigin, registerBridgeRoute } from '../gateway/bridgeRoute';
 import { BridgeSessionManager } from '../gateway/bridgeSession';
 import type { ResolvedAiSiteConfig } from '../platforms';
+
+const BUNDLED_BRIDGE_ORIGIN = 'chrome-extension://joieheegaphjokbcbklegmphhgpdfcon';
+const CHROME_WEB_STORE_BRIDGE_ORIGIN = 'chrome-extension://kghhldphcmpiimophipabdhldfipgiio';
 
 const TEST_SITE: ResolvedAiSiteConfig = {
     id: 'chatgpt',
@@ -24,6 +27,50 @@ const TEST_SITE: ResolvedAiSiteConfig = {
 };
 
 suite('Bridge route security', () => {
+    test('allows only official browser bridge origins to redeem launch codes', () => {
+        assert.strictEqual(isAllowedBridgeRedemptionOrigin(BUNDLED_BRIDGE_ORIGIN), true);
+        assert.strictEqual(isAllowedBridgeRedemptionOrigin(CHROME_WEB_STORE_BRIDGE_ORIGIN), true);
+        assert.strictEqual(isAllowedBridgeRedemptionOrigin('chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), false);
+        assert.strictEqual(isAllowedBridgeRedemptionOrigin(undefined), false);
+    });
+
+    test('rejects unauthorized redemption origins without consuming the launch code', async () => {
+        const sessions = new BridgeSessionManager();
+        const server = await startBridgeServer(sessions, () => undefined);
+
+        try {
+            const bridgeCode = sessions.issueBridgeCode({
+                siteId: TEST_SITE.id,
+                targetUrl: TEST_SITE.address
+            });
+
+            const missingOriginResponse = await redeemBridgeCode(server.baseUrl, bridgeCode, '1.0.1', BRIDGE_PROTOCOL_VERSION, null);
+            assert.strictEqual(missingOriginResponse.status, 403);
+            assert.ok(sessions.getBridgeLaunch(bridgeCode));
+
+            const foreignExtensionResponse = await redeemBridgeCode(
+                server.baseUrl,
+                bridgeCode,
+                '1.0.1',
+                BRIDGE_PROTOCOL_VERSION,
+                'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            );
+            assert.strictEqual(foreignExtensionResponse.status, 403);
+            assert.ok(sessions.getBridgeLaunch(bridgeCode));
+
+            const bundledResponse = await redeemBridgeCode(
+                server.baseUrl,
+                bridgeCode,
+                '1.0.1',
+                BRIDGE_PROTOCOL_VERSION,
+                BUNDLED_BRIDGE_ORIGIN
+            );
+            assert.strictEqual(bundledResponse.status, 200);
+        } finally {
+            await closeServer(server.httpServer);
+        }
+    });
+
     test('redeems a launch code once without placing the API token in the page', async () => {
         const sessions = new BridgeSessionManager();
         let activityCount = 0;
@@ -51,16 +98,29 @@ suite('Bridge route security', () => {
                 server.baseUrl,
                 bridgeCode,
                 '1.0.1',
-                BRIDGE_PROTOCOL_VERSION - 1
+                BRIDGE_PROTOCOL_VERSION - 1,
+                CHROME_WEB_STORE_BRIDGE_ORIGIN
             );
             assert.strictEqual(protocolMismatchResponse.status, 409);
             assert.ok(sessions.getBridgeLaunch(bridgeCode));
 
-            const mismatchResponse = await redeemBridgeCode(server.baseUrl, bridgeCode, '0.0.0');
+            const mismatchResponse = await redeemBridgeCode(
+                server.baseUrl,
+                bridgeCode,
+                '0.0.0',
+                BRIDGE_PROTOCOL_VERSION,
+                CHROME_WEB_STORE_BRIDGE_ORIGIN
+            );
             assert.strictEqual(mismatchResponse.status, 409);
             assert.ok(sessions.getBridgeLaunch(bridgeCode));
 
-            const redeemResponse = await redeemBridgeCode(server.baseUrl, bridgeCode, '1.0.1');
+            const redeemResponse = await redeemBridgeCode(
+                server.baseUrl,
+                bridgeCode,
+                '1.0.1',
+                BRIDGE_PROTOCOL_VERSION,
+                CHROME_WEB_STORE_BRIDGE_ORIGIN
+            );
             const redemption = await redeemResponse.json() as Record<string, unknown>;
             const sessionToken = redemption.token;
 
@@ -75,7 +135,13 @@ suite('Bridge route security', () => {
             assert.strictEqual(sessions.isSessionTokenValid(sessionToken as string), true);
             assert.strictEqual(activityCount, 1);
 
-            const reusedResponse = await redeemBridgeCode(server.baseUrl, bridgeCode, '1.0.1');
+            const reusedResponse = await redeemBridgeCode(
+                server.baseUrl,
+                bridgeCode,
+                '1.0.1',
+                BRIDGE_PROTOCOL_VERSION,
+                CHROME_WEB_STORE_BRIDGE_ORIGIN
+            );
             assert.strictEqual(reusedResponse.status, 410);
             assert.strictEqual(activityCount, 1);
         } finally {
@@ -116,11 +182,16 @@ function redeemBridgeCode(
     baseUrl: string,
     bridgeCode: string,
     browserExtensionVersion: string,
-    bridgeProtocolVersion = BRIDGE_PROTOCOL_VERSION
+    bridgeProtocolVersion = BRIDGE_PROTOCOL_VERSION,
+    origin: string | null = CHROME_WEB_STORE_BRIDGE_ORIGIN
 ): Promise<Response> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (origin) {
+        headers.Origin = origin;
+    }
     return fetch(`${baseUrl}/v1/bridge/redeem`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ bridgeCode, browserExtensionVersion, bridgeProtocolVersion })
     });
 }

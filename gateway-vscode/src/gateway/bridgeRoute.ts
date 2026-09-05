@@ -6,6 +6,13 @@ import { findAiSiteById, isTargetAllowedForSite, type ResolvedAiSiteConfig } fro
 import type { PendingBridgeLaunch } from './bridgeSession';
 import type { GatewayLogger } from './types';
 
+const BUNDLED_BRIDGE_EXTENSION_ORIGIN = 'chrome-extension://joieheegaphjokbcbklegmphhgpdfcon';
+const CHROME_WEB_STORE_BRIDGE_EXTENSION_ORIGIN = 'chrome-extension://kghhldphcmpiimophipabdhldfipgiio';
+const ALLOWED_BRIDGE_REDEMPTION_ORIGINS = new Set([
+    BUNDLED_BRIDGE_EXTENSION_ORIGIN,
+    CHROME_WEB_STORE_BRIDGE_EXTENSION_ORIGIN
+]);
+
 type BridgeRouteOptions = {
     activateSession: () => string;
     consumeBridgeCode: (code: string) => PendingBridgeLaunch | null;
@@ -54,6 +61,16 @@ export function registerBridgeRoute(app: express.Express, options: BridgeRouteOp
 
     app.post('/v1/bridge/redeem', (req, res) => {
         setBridgeSecurityHeaders(res);
+        const origin = req.get('origin');
+        if (!isAllowedBridgeRedemptionOrigin(origin)) {
+            options.log(`⛔ Rejected bridge redemption from origin: ${origin ?? '<missing>'}`);
+            res.status(403).json({
+                success: false,
+                error: 'Bridge redemption is only available to the WebCode browser extension.'
+            });
+            return;
+        }
+
         const redemptionRequest = getBridgeRedemptionFromBody(req.body);
         if (!redemptionRequest) {
             options.log('⛔ Rejected malformed bridge redemption request.');
@@ -187,6 +204,10 @@ function resolvePendingBridgeLaunch(
 
     const targetUrl = resolveAllowedBridgeTarget(launch.targetUrl, site);
     return targetUrl ? { site, targetUrl } : null;
+}
+
+export function isAllowedBridgeRedemptionOrigin(origin: string | undefined): boolean {
+    return Boolean(origin && ALLOWED_BRIDGE_REDEMPTION_ORIGINS.has(origin));
 }
 
 function getBridgeRedemptionFromBody(
