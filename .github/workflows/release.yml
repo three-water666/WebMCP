@@ -52,6 +52,7 @@ jobs:
 
       - name: Run VS Code Extension Host tests
         env:
+          WEBCODE_EVAL_VSCODE_PATH: download
           VSCODE_TEST_VERSION: "1.106.1"
         run: xvfb-run -a pnpm test:extension
 
