@@ -20,10 +20,10 @@ function createRandomSecret(): string {
 }
 
 /**
- * Owns the short-lived launch codes and the single active browser session token.
- * Launch codes are safe to place in a URL because they expire quickly and can be
- * consumed only once. The API session token is returned only by the redemption
- * response and is revoked whenever a new session is activated or the gateway stops.
+ * Owns the short-lived launch codes and the browser session token shared by the
+ * current gateway lifecycle. Launch codes are safe to place in a URL because they
+ * expire quickly and can be consumed only once. The API session token is returned
+ * only by the redemption response and is revoked when the gateway stops or restarts.
  */
 export class BridgeSessionManager {
     private readonly pendingCodes = new Map<string, PendingBridgeCode>();
@@ -72,9 +72,8 @@ export class BridgeSessionManager {
     }
 
     activateSession(): string {
-        const token = this.createSecret();
-        this.activeSessionToken = token;
-        return token;
+        this.activeSessionToken ??= this.createSecret();
+        return this.activeSessionToken;
     }
 
     isSessionTokenValid(token: string | undefined): boolean {

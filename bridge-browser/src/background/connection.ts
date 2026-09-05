@@ -35,10 +35,9 @@ export async function handleHandshake(request: MessageRequest, tabId: number | n
     return { success: false, error: "Invalid handshake parameters" };
   }
 
-  const conflictTabId = await findConflictTabId(params.port, tabId);
-  let replacedTabId: number | null = null;
-  if (conflictTabId) {
-    if (!params.force) {
+  if (!params.force) {
+    const conflictTabId = await findConflictTabId(params.port, tabId);
+    if (conflictTabId) {
       try {
         const tab = await chrome.tabs.get(parseInt(conflictTabId, 10));
         if (tab) {
@@ -49,8 +48,6 @@ export async function handleHandshake(request: MessageRequest, tabId: number | n
         await removeSession(staleTabId);
         await clearSessionExpiryCheck(staleTabId);
       }
-    } else {
-      replacedTabId = parseInt(conflictTabId, 10);
     }
   }
 
@@ -64,10 +61,6 @@ export async function handleHandshake(request: MessageRequest, tabId: number | n
     return redemption;
   }
   const session = redemption.session;
-  if (replacedTabId) {
-    await removeSession(replacedTabId, "invalid_token");
-    await clearSessionExpiryCheck(replacedTabId);
-  }
   if (session.vscodeExtensionVersion !== params.browserExtensionVersion) {
     return { success: false, error: "VS Code and browser extension versions do not match." };
   }

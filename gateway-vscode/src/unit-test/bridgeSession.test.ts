@@ -21,18 +21,19 @@ suite('Bridge session security', () => {
         assert.strictEqual(manager.consumeBridgeCode(expiringCode), null);
     });
 
-    test('keeps only the newest API session token active', () => {
+    test('shares one API session token for the gateway lifecycle', () => {
         const secrets = ['session-one', 'session-two'];
         const manager = new BridgeSessionManager(100, Date.now, () => secrets.shift() ?? 'fallback');
 
         const firstToken = manager.activateSession();
-        assert.strictEqual(manager.isSessionTokenValid(firstToken), true);
-
         const secondToken = manager.activateSession();
-        assert.strictEqual(manager.isSessionTokenValid(firstToken), false);
-        assert.strictEqual(manager.isSessionTokenValid(secondToken), true);
+
+        assert.strictEqual(firstToken, 'session-one');
+        assert.strictEqual(secondToken, firstToken);
+        assert.strictEqual(manager.isSessionTokenValid(firstToken), true);
+        assert.strictEqual(manager.isSessionTokenValid('session-two'), false);
 
         manager.clear();
-        assert.strictEqual(manager.isSessionTokenValid(secondToken), false);
+        assert.strictEqual(manager.isSessionTokenValid(firstToken), false);
     });
 });
