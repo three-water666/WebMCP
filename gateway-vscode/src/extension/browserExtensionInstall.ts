@@ -24,6 +24,13 @@ export interface BrowserExtensionInstallOptions {
     lockTimeoutMs?: number;
 }
 
+export interface ResolveBrowserExtensionRootOptions {
+    developmentStorageRoot?: string;
+    platform?: NodeJS.Platform;
+    env?: NodeJS.ProcessEnv;
+    homeDir?: string;
+}
+
 export interface BrowserExtensionInstallLockOptions {
     rootDir: string;
     lockTimeoutMs?: number;
@@ -43,6 +50,23 @@ const BROWSER_EXTENSION_ROOT_DIR_NAME = 'browser-extensions';
 const INSTALL_RECORD_FILE = 'install.json';
 const PREVIOUS_DIR_NAME = 'previous';
 const DEFAULT_LOCK_TIMEOUT_MS = 15_000;
+
+export function resolveBrowserExtensionRoot(options: ResolveBrowserExtensionRootOptions = {}): string {
+    const platform = options.platform ?? os.platform();
+    const env = options.env ?? process.env;
+    const platformPath = platform === 'win32' ? path.win32 : path.posix;
+    const override = env.WEBCODE_BROWSER_EXTENSION_ROOT?.trim();
+    if (override) {
+        if (!platformPath.isAbsolute(override)) {
+            throw new Error(`WEBCODE_BROWSER_EXTENSION_ROOT must be absolute: ${override}`);
+        }
+        return platformPath.resolve(override);
+    }
+    if (options.developmentStorageRoot) {
+        return platformPath.join(options.developmentStorageRoot, 'browser-extensions-development');
+    }
+    return resolveDefaultBrowserExtensionRoot(platform, env, options.homeDir);
+}
 
 export function resolveDefaultBrowserExtensionRoot(
     platform: NodeJS.Platform,
@@ -210,16 +234,18 @@ export async function readAndValidateBrowserExtensionBuild(
 }
 
 export async function calculateBrowserExtensionBuildHash(extensionDir: string): Promise<string> {
-    const files = await collectExtensionFiles(extensionDir);
+    // Match the packaging script: sort normalized relative paths by UTF-16 code units.
+    const files = (await collectExtensionFiles(extensionDir))
+        .map(filePath => path.relative(extensionDir, filePath).replace(/\\/g, '/'))
+        .sort();
     const hash = crypto.createHash('sha256');
-    for (const filePath of files) {
-        const relativePath = path.relative(extensionDir, filePath).replace(/\\/g, '/');
+    for (const relativePath of files) {
         if (relativePath === BROWSER_EXTENSION_BUILD_FILE) {
             continue;
         }
         hash.update(relativePath, 'utf8');
         hash.update('\0');
-        hash.update(await fs.readFile(filePath));
+        hash.update(await fs.readFile(path.join(extensionDir, relativePath)));
         hash.update('\0');
     }
     return hash.digest('hex');
@@ -259,7 +285,7 @@ async function collectExtensionFiles(directory: string): Promise<string[]> {
             files.push(entryPath);
         }
     }
-    return files.sort((left, right) => left.localeCompare(right));
+    return files;
 }
 
 async function cleanOtherStagingDirectories(

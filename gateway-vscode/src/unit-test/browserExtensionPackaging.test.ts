@@ -10,6 +10,7 @@ import { isAllowedBridgeRedemptionOrigin } from '../gateway/bridgeRoute';
 const repoRoot = path.resolve(__dirname, '../../..');
 const manifestPath = path.join(repoRoot, 'bridge-browser', 'manifest.json');
 const copyScriptPath = path.join(repoRoot, 'gateway-vscode', 'scripts', 'copy-browser-extension.mjs');
+const installModulePath = require.resolve('../extension/browserExtensionInstall');
 
 interface PackagingFixture {
     sourceDir: string;
@@ -42,6 +43,49 @@ suite('Browser extension packaging', () => {
         });
     });
 
+    for (const [buildLocale, validationLocale] of [['en-US', 'th-TH'], ['th-TH', 'en-US']]) {
+        test(`validates a ${buildLocale} package under ${validationLocale} with canonical path ordering`, async () => {
+            await withPackagingFixture(async ({ sourceDir, targetDir, scriptPath }) => {
+                const expectedHash = await writeHashFixture(sourceDir);
+                // Locale environment variables do not change Node's default locale on Windows.
+                // Override only the default locale of localeCompare in each isolated child process.
+                const preloadPath = `${scriptPath}.locale.cjs`;
+                await fs.writeFile(preloadPath, `
+                    const compare = String.prototype.localeCompare;
+                    String.prototype.localeCompare = function (right, locales, options) {
+                        return compare.call(this, right, locales ?? process.env.WEBCODE_TEST_LOCALE, options);
+                    };
+                `);
+                const packaged = spawnSync(process.execPath, ['--require', preloadPath, scriptPath], {
+                    env: { ...process.env, WEBCODE_TEST_LOCALE: buildLocale },
+                    encoding: 'utf8',
+                    timeout: 10_000,
+                    windowsHide: true
+                });
+                assert.ifError(packaged.error);
+                assert.strictEqual(packaged.status, 0, packaged.stderr);
+
+                const validated = spawnSync(process.execPath, ['--require', preloadPath, '-e', `
+                    const { readAndValidateBrowserExtensionBuild } = require(process.argv[1]);
+                    readAndValidateBrowserExtensionBuild(process.argv[2]).then(build => {
+                        console.log(build.buildHash);
+                    }).catch(error => {
+                        console.error(error);
+                        process.exitCode = 1;
+                    });
+                `, installModulePath, targetDir], {
+                    env: { ...process.env, WEBCODE_TEST_LOCALE: validationLocale },
+                    encoding: 'utf8',
+                    timeout: 10_000,
+                    windowsHide: true
+                });
+                assert.ifError(validated.error);
+                assert.strictEqual(validated.status, 0, validated.stderr);
+                assert.strictEqual(validated.stdout.trim(), expectedHash);
+            });
+        });
+    }
+
     for (const key of [undefined, 'unexpected-public-key']) {
         test(`rejects a prebuilt manifest with ${key ? 'a different key' : 'no key'} before replacing the bundle`, async () => {
             await withPackagingFixture(async ({ sourceDir, targetDir, scriptPath }) => {
@@ -62,6 +106,29 @@ suite('Browser extension packaging', () => {
         });
     }
 });
+
+async function writeHashFixture(sourceDir: string): Promise<string> {
+    // Deliberately fixed UTF-16 order, including a directory/file pair whose order
+    // would differ if Windows separators were sorted before normalization.
+    const orderedFiles = [
+        ['Z-worker.js', 'uppercase'],
+        ['_locales/en/messages.json', '{"name":{"message":"Test bridge"}}'],
+        ['assets/worker.js', 'nested'],
+        ['assets0.js', 'adjacent'],
+        ['manifest.json', await fs.readFile(path.join(sourceDir, 'manifest.json'), 'utf8')],
+        ['worker.js', 'lowercase'],
+        ['é-worker.js', 'accented'],
+        ['ไทย.js', 'thai']
+    ];
+    const hash = createHash('sha256');
+    for (const [relativePath, contents] of orderedFiles) {
+        const filePath = path.join(sourceDir, relativePath);
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, contents, 'utf8');
+        hash.update(relativePath, 'utf8').update('\0').update(contents, 'utf8').update('\0');
+    }
+    return hash.digest('hex');
+}
 
 async function withPackagingFixture(run: (fixture: PackagingFixture) => Promise<void>): Promise<void> {
     const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'webcode-browser-packaging-'));

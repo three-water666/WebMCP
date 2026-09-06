@@ -11,6 +11,7 @@ import {
     calculateBrowserExtensionBuildHash,
     prepareBrowserExtensionInstall,
     readAndValidateBrowserExtensionBuild,
+    resolveBrowserExtensionRoot,
     resolveDefaultBrowserExtensionRoot,
     withBrowserExtensionInstallLock,
     type BrowserExtensionBuild
@@ -34,6 +35,73 @@ suite('Browser extension installation', () => {
             resolveDefaultBrowserExtensionRoot('linux', {}, '/home/me'),
             path.posix.join('/home/me', '.local', 'share', 'webcode', 'browser-extensions')
         );
+    });
+
+    test('keeps development installations in separate storage on every supported platform', () => {
+        for (const platform of ['win32', 'darwin', 'linux'] as const) {
+            const platformPath = platform === 'win32' ? path.win32 : path.posix;
+            const homeDir = platform === 'win32' ? 'C:\\Users\\me' : '/home/me';
+            const developmentStorageRoot = platformPath.join(homeDir, 'vscode-storage');
+            const options = { platform, homeDir, env: {} };
+            const productionRoot = resolveBrowserExtensionRoot(options);
+            const developmentRoot = resolveBrowserExtensionRoot({ ...options, developmentStorageRoot });
+
+            assert.strictEqual(productionRoot, resolveDefaultBrowserExtensionRoot(platform, {}, homeDir));
+            assert.strictEqual(
+                developmentRoot,
+                platformPath.join(developmentStorageRoot, 'browser-extensions-development')
+            );
+            assert.notStrictEqual(developmentRoot, productionRoot);
+        }
+    });
+
+    test('honors explicit install roots in production and development and rejects relative overrides', () => {
+        const overrideRoot = path.resolve('custom-browser-extensions');
+        for (const developmentStorageRoot of [undefined, path.resolve('development-storage')]) {
+            assert.strictEqual(resolveBrowserExtensionRoot({
+                developmentStorageRoot,
+                env: { WEBCODE_BROWSER_EXTENSION_ROOT: `  ${overrideRoot}  ` }
+            }), overrideRoot);
+            assert.throws(() => resolveBrowserExtensionRoot({
+                developmentStorageRoot,
+                env: { WEBCODE_BROWSER_EXTENSION_ROOT: './relative-root' }
+            }), /must be absolute/);
+        }
+    });
+
+    test('a later development build at the same version cannot block the production installation', async () => {
+        await withTempInstall(async ({ rootDir, sourceRoot }) => {
+            const options = { env: {}, homeDir: rootDir };
+            const productionRoot = resolveBrowserExtensionRoot(options);
+            const developmentRoot = resolveBrowserExtensionRoot({
+                ...options,
+                developmentStorageRoot: path.join(rootDir, 'vscode-storage')
+            });
+            const production = await createExtensionBuild(sourceRoot, 'release', '1.0.1', '2026-09-01T00:00:00.000Z');
+            const development = await createExtensionBuild(sourceRoot, 'development', '1.0.1', '2026-09-02T00:00:00.000Z');
+
+            await prepareBrowserExtensionInstall({ sourceDir: production.path, rootDir: productionRoot });
+            const stagedDevelopment = await prepareBrowserExtensionInstall({ sourceDir: development.path, rootDir: developmentRoot });
+            assert.strictEqual(stagedDevelopment.status, 'staged');
+            const stagedProduction = await prepareBrowserExtensionInstall({ sourceDir: production.path, rootDir: productionRoot });
+            assert.strictEqual(stagedProduction.status, 'staged');
+
+            const activatedDevelopment = await activatePreparedBrowserExtension({ rootDir: developmentRoot }, development.build);
+            assert.strictEqual(activatedDevelopment.status, 'ready');
+            const activatedProduction = await activatePreparedBrowserExtension({ rootDir: productionRoot }, production.build);
+            assert.strictEqual(activatedProduction.status, 'ready');
+
+            const reinstalled = await prepareBrowserExtensionInstall({ sourceDir: production.path, rootDir: productionRoot });
+            assert.strictEqual(reinstalled.status, 'ready');
+            assert.deepStrictEqual(
+                await readAndValidateBrowserExtensionBuild(path.join(productionRoot, BROWSER_EXTENSION_ACTIVE_DIR_NAME)),
+                production.build
+            );
+            assert.deepStrictEqual(
+                await readAndValidateBrowserExtensionBuild(path.join(developmentRoot, BROWSER_EXTENSION_ACTIVE_DIR_NAME)),
+                development.build
+            );
+        });
     });
 
     test('stages complete builds and switches the stable bridge path only after activation', async () => {

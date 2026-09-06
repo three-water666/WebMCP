@@ -52,15 +52,18 @@ writeFileSync(
 );
 
 function hashExtensionFiles(rootDir) {
+  // Match runtime validation: sort normalized relative paths by UTF-16 code units.
+  const files = collectFiles(rootDir)
+    .map(filePath => relative(rootDir, filePath).replace(/\\/g, '/'))
+    .sort();
   const hash = createHash('sha256');
-  for (const filePath of collectFiles(rootDir)) {
-    const relativePath = relative(rootDir, filePath).replace(/\\/g, '/');
+  for (const relativePath of files) {
     if (relativePath === BUILD_DESCRIPTOR_FILE) {
       continue;
     }
     hash.update(relativePath, 'utf8');
     hash.update('\0');
-    hash.update(readFileSync(filePath));
+    hash.update(readFileSync(resolve(rootDir, relativePath)));
     hash.update('\0');
   }
   return hash.digest('hex');
@@ -79,5 +82,5 @@ function collectFiles(directory) {
       files.push(entryPath);
     }
   }
-  return files.sort((left, right) => left.localeCompare(right));
+  return files;
 }

@@ -1,12 +1,11 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
 import { t } from '../i18n';
 import {
-    resolveDefaultBrowserExtensionRoot,
+    resolveBrowserExtensionRoot,
     withBrowserExtensionInstallLock,
     type BrowserExtensionBuild,
     type BrowserExtensionInstallLease,
@@ -62,7 +61,11 @@ class DefaultBrowserExtensionManager implements BrowserExtensionManager {
         private readonly context: vscode.ExtensionContext,
         private readonly outputChannel: vscode.OutputChannel
     ) {
-        this.rootDir = resolveBrowserExtensionRoot();
+        this.rootDir = resolveBrowserExtensionRoot({
+            developmentStorageRoot: context.extensionMode === vscode.ExtensionMode.Production
+                ? undefined
+                : context.globalStorageUri.fsPath
+        });
     }
 
     prepareInBackground(): void {
@@ -285,17 +288,6 @@ class DefaultBrowserExtensionManager implements BrowserExtensionManager {
     private log(message: string): void {
         this.outputChannel.appendLine(`[Browser Bridge] ${message}`);
     }
-}
-
-function resolveBrowserExtensionRoot(): string {
-    const override = process.env.WEBCODE_BROWSER_EXTENSION_ROOT?.trim();
-    if (override) {
-        if (!path.isAbsolute(override)) {
-            throw new Error(`WEBCODE_BROWSER_EXTENSION_ROOT must be absolute: ${override}`);
-        }
-        return path.resolve(override);
-    }
-    return resolveDefaultBrowserExtensionRoot(os.platform());
 }
 
 function resolveBundledBrowserExtensionSource(context: vscode.ExtensionContext): string | null {
