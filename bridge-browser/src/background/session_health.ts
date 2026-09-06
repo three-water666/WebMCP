@@ -46,13 +46,21 @@ export async function checkGatewayHealth(
 export async function recordGatewayActivity(tabId: number): Promise<void> {
   const session = await updateSessionGatewayActivity(tabId);
   if (session) {
-    scheduleSessionExpiryCheck(tabId, session.lastGatewayActivityAt);
+    scheduleSessionExpiryCheck(
+      tabId,
+      session.lastGatewayActivityAt,
+      session.gatewayIdleTimeoutMs
+    );
   }
 }
 
-export function scheduleSessionExpiryCheck(tabId: number, lastGatewayActivityAt?: number): void {
+export function scheduleSessionExpiryCheck(
+  tabId: number,
+  lastGatewayActivityAt?: number,
+  gatewayIdleTimeoutMs?: number
+): void {
   const activityAt = getValidTimestamp(lastGatewayActivityAt) ?? Date.now();
-  const expiresAt = activityAt + GATEWAY_IDLE_TIMEOUT_MS + GATEWAY_IDLE_GRACE_MS;
+  const expiresAt = activityAt + getGatewayIdleTimeoutMs(gatewayIdleTimeoutMs) + GATEWAY_IDLE_GRACE_MS;
   const delayMs = Math.max(1000, expiresAt - Date.now());
 
   void chrome.alarms.create(getSessionExpiryAlarmName(tabId), {
@@ -92,7 +100,7 @@ export async function handleSessionExpiryAlarm(alarm: chrome.alarms.Alarm): Prom
 
   const expiresAt = getSessionExpiresAt(session);
   if (Date.now() < expiresAt) {
-    scheduleSessionExpiryCheck(tabId, session.lastGatewayActivityAt);
+    scheduleSessionExpiryCheck(tabId, session.lastGatewayActivityAt, session.gatewayIdleTimeoutMs);
     return;
   }
 
@@ -109,7 +117,7 @@ export async function handleSessionExpiryAlarm(alarm: chrome.alarms.Alarm): Prom
 async function scheduleStoredSessionExpiryCheck(tabId: number): Promise<void> {
   const session = await getCurrentProtocolSession(tabId);
   if (session) {
-    scheduleSessionExpiryCheck(tabId, session.lastGatewayActivityAt);
+    scheduleSessionExpiryCheck(tabId, session.lastGatewayActivityAt, session.gatewayIdleTimeoutMs);
   }
 }
 
@@ -121,7 +129,7 @@ function rescheduleSessionExpiryRecheck(tabId: number): void {
 
 function getSessionExpiresAt(session: CurrentProtocolSession): number {
   const activityAt = getValidTimestamp(session.lastGatewayActivityAt) ?? Date.now();
-  return activityAt + GATEWAY_IDLE_TIMEOUT_MS + GATEWAY_IDLE_GRACE_MS;
+  return activityAt + getGatewayIdleTimeoutMs(session.gatewayIdleTimeoutMs) + GATEWAY_IDLE_GRACE_MS;
 }
 
 function getSessionExpiryAlarmName(tabId: number): string {
@@ -143,4 +151,10 @@ function getDisconnectReasonForHealthStatus(status: GatewayHealthStatus): Sessio
 
 function getValidTimestamp(value: number | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function getGatewayIdleTimeoutMs(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : GATEWAY_IDLE_TIMEOUT_MS;
 }

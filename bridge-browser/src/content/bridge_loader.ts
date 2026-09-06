@@ -1,4 +1,4 @@
-import { BRANDING } from '@webcode/shared';
+import { BRANDING, BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 import { type HandshakeResponse } from '../types';
 
 type BridgeLoaderI18n = {
@@ -9,7 +9,9 @@ type BridgeLoaderI18n = {
   connectionConflictTitle: string;
   connectionConflictBody: (port: number) => string;
   versionMismatchTitle: string;
-  versionMismatchBody: (vscodeVersion: string, browserVersion: string) => string;
+  browserBridgeOutdatedBody: (vscodeVersion: string, browserVersion: string) => string;
+  vscodeExtensionOutdatedBody: (vscodeVersion: string, browserVersion: string) => string;
+  protocolMismatchBody: (gatewayProtocol: string, browserProtocol: number) => string;
   connectHere: string;
   switchingConnection: string;
   connectionFailed: (message: string) => string;
@@ -30,19 +32,22 @@ type ReadyHandshakeElements = {
 
 type HandshakeParams = {
   port: number;
-  token: string;
-  target: string;
-  siteId: string;
-  targetOrigin?: string;
+  bridgeCode: string;
+  bridgeProtocolVersion: number;
   vscodeExtensionVersion: string;
   browserExtensionVersion: string;
-  workspaceId: string;
 };
 
 type ReadHandshakeParamsResult =
   | { status: "ready"; params: HandshakeParams }
   | { status: "invalid" }
-  | { status: "version-mismatch"; vscodeExtensionVersion: string; browserExtensionVersion: string };
+  | {
+      status: "version-mismatch";
+      reason: "browser-outdated" | "vscode-outdated" | "protocol-mismatch";
+      vscodeExtensionVersion: string;
+      browserExtensionVersion: string;
+      gatewayProtocolVersion?: number;
+    };
 
 const I18N: Record<"en" | "zh", BridgeLoaderI18n> = {
   en: {
@@ -54,8 +59,12 @@ const I18N: Record<"en" | "zh", BridgeLoaderI18n> = {
     connectionConflictBody: (port: number) =>
       `VS Code (Port ${port}) is already connected to another tab.<br>Do you want to switch the connection here?`,
     versionMismatchTitle: "Version Mismatch",
-    versionMismatchBody: (vscodeVersion: string, browserVersion: string) =>
-      `VS Code extension version: ${vscodeVersion}<br>Browser extension version: ${browserVersion}<br>Please update both extensions to the same version, then reconnect.`,
+    browserBridgeOutdatedBody: (vscodeVersion: string, browserVersion: string) =>
+      `VS Code extension: ${vscodeVersion}<br>Browser bridge: ${browserVersion}<br>The browser bridge is older. For an isolated browser, return to VS Code and restart it; otherwise update the browser extension.`,
+    vscodeExtensionOutdatedBody: (vscodeVersion: string, browserVersion: string) =>
+      `VS Code extension: ${vscodeVersion}<br>Browser bridge: ${browserVersion}<br>Update or reload the VS Code extension, then reconnect.`,
+    protocolMismatchBody: (gatewayProtocol: string, browserProtocol: number) =>
+      `VS Code bridge protocol: ${gatewayProtocol}<br>Browser bridge protocol: ${browserProtocol}<br>Update the older extension. For an isolated browser, restart it from VS Code.`,
     connectHere: "Yes, Connect Here",
     switchingConnection: "Switching connection...",
     connectionFailed: (message: string) => `Connection Failed: ${message}`,
@@ -69,8 +78,12 @@ const I18N: Record<"en" | "zh", BridgeLoaderI18n> = {
     connectionConflictTitle: "⚠️ 连接冲突",
     connectionConflictBody: (port: number) => `VS Code（端口 ${port}）当前已连接到另一个标签页。<br>要切换到这个页面吗？`,
     versionMismatchTitle: "版本不一致",
-    versionMismatchBody: (vscodeVersion: string, browserVersion: string) =>
-      `VS Code 扩展版本：${vscodeVersion}<br>浏览器扩展版本：${browserVersion}<br>请将两个扩展升级到相同版本后重新连接。`,
+    browserBridgeOutdatedBody: (vscodeVersion: string, browserVersion: string) =>
+      `VS Code 扩展：${vscodeVersion}<br>浏览器桥接：${browserVersion}<br>浏览器桥接版本较旧。如果使用隔离浏览器，请回到 VS Code 重启隔离浏览器；否则请更新浏览器扩展。`,
+    vscodeExtensionOutdatedBody: (vscodeVersion: string, browserVersion: string) =>
+      `VS Code 扩展：${vscodeVersion}<br>浏览器桥接：${browserVersion}<br>请更新或重新加载 VS Code 扩展，然后重新连接。`,
+    protocolMismatchBody: (gatewayProtocol: string, browserProtocol: number) =>
+      `VS Code 桥接协议：${gatewayProtocol}<br>浏览器桥接协议：${browserProtocol}<br>请更新较旧的一端；隔离浏览器请从 VS Code 中重启。`,
     connectHere: "是的，连接到这里",
     switchingConnection: "正在切换连接...",
     connectionFailed: (message: string) => `连接失败：${message}`,
@@ -116,28 +129,45 @@ function getHandshakeElements(): HandshakeElements {
 function readHandshakeParams(): ReadHandshakeParamsResult {
   const params = new URLSearchParams(window.location.search);
   const bridgeData = readBridgeData();
-  const token = bridgeData.token;
-  const target = bridgeData.target ?? params.get("target");
-  const siteId = bridgeData.siteId ?? params.get("siteId");
-  const vscodeExtensionVersion = bridgeData.vscodeExtensionVersion;
+  const bridgeCode = params.get("bridgeCode");
+  const vscodeExtensionVersion = bridgeData.currentVscodeExtensionVersion ?? bridgeData.vscodeExtensionVersion;
+  const gatewayProtocolVersion = bridgeData.bridgeProtocolVersion;
   const browserExtensionVersion = chrome.runtime.getManifest().version;
   const portStr = window.location.port;
 
-  if (!token || !target || !siteId || !portStr) {
+  if (bridgeCode) {
+    stripBridgeCodeFromAddressBar();
+  }
+
+  if (!bridgeCode || !portStr) {
     return { status: "invalid" };
   }
 
   if (!vscodeExtensionVersion) {
     return {
       status: "version-mismatch",
+      reason: "protocol-mismatch",
       vscodeExtensionVersion: "unknown",
       browserExtensionVersion,
+    };
+  }
+
+  if (gatewayProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
+    return {
+      status: "version-mismatch",
+      reason: "protocol-mismatch",
+      vscodeExtensionVersion,
+      browserExtensionVersion,
+      gatewayProtocolVersion,
     };
   }
 
   if (vscodeExtensionVersion !== browserExtensionVersion) {
     return {
       status: "version-mismatch",
+      reason: compareVersions(vscodeExtensionVersion, browserExtensionVersion) > 0
+        ? "browser-outdated"
+        : "vscode-outdated",
       vscodeExtensionVersion,
       browserExtensionVersion,
     };
@@ -147,23 +177,16 @@ function readHandshakeParams(): ReadHandshakeParamsResult {
     status: "ready",
     params: {
       port: Number.parseInt(portStr, 10),
-      token,
-      target,
-      siteId,
-      targetOrigin: readTargetOrigin(target),
+      bridgeCode,
+      bridgeProtocolVersion: gatewayProtocolVersion,
       vscodeExtensionVersion,
       browserExtensionVersion,
-      workspaceId: bridgeData.workspaceId ?? "global",
     },
   };
 }
 
-function readTargetOrigin(target: string): string | undefined {
-  try {
-    return new URL(target).origin;
-  } catch {
-    return undefined;
-  }
+function stripBridgeCodeFromAddressBar(): void {
+  window.history.replaceState(null, document.title, window.location.pathname);
 }
 
 function attemptHandshake(params: HandshakeParams, elements: HandshakeElements, force = false): void {
@@ -171,13 +194,10 @@ function attemptHandshake(params: HandshakeParams, elements: HandshakeElements, 
     {
       type: "HANDSHAKE",
       port: params.port,
-      token: params.token,
-      siteId: params.siteId,
-      targetOrigin: params.targetOrigin,
-      targetUrl: params.target,
+      bridgeCode: params.bridgeCode,
+      bridgeProtocolVersion: params.bridgeProtocolVersion,
       vscodeExtensionVersion: params.vscodeExtensionVersion,
       browserExtensionVersion: params.browserExtensionVersion,
-      workspaceId: params.workspaceId,
       force,
     },
     (response: HandshakeResponse) => {
@@ -198,10 +218,7 @@ function showVersionMismatch(
   elements.loader.style.display = "none";
   elements.statusText.innerHTML = `
                             <span style="color:#ff6b6b">${i18n.versionMismatchTitle}</span><br>
-                            <span style="font-size:0.8em; opacity:0.8">${i18n.versionMismatchBody(
-                              result.vscodeExtensionVersion,
-                              result.browserExtensionVersion
-                            )}</span>
+                            <span style="font-size:0.8em; opacity:0.8">${getVersionMismatchBody(result)}</span>
                         `;
 }
 
@@ -220,7 +237,11 @@ function handleHandshakeResponse(
   }
 
   if (response?.success) {
-    showConnected(params.target, elements);
+    if (!response.targetUrl) {
+      showConnectionFailed({ success: false, error: i18n.unknownError }, elements);
+      return;
+    }
+    showConnected(response.targetUrl, elements);
   } else if (response?.error === "BUSY") {
     showConnectionConflict(params, elements);
   } else {
@@ -300,7 +321,41 @@ function showConnectionFailed(response: HandshakeResponse, elements: ReadyHandsh
   elements.statusText.style.color = "#ff6b6b";
 }
 
-function readBridgeData(): Partial<Pick<HandshakeParams, "token" | "siteId" | "target" | "vscodeExtensionVersion" | "workspaceId">> {
+function getVersionMismatchBody(
+  result: Extract<ReadHandshakeParamsResult, { status: "version-mismatch" }>
+): string {
+  if (result.reason === "browser-outdated") {
+    return i18n.browserBridgeOutdatedBody(result.vscodeExtensionVersion, result.browserExtensionVersion);
+  }
+  if (result.reason === "vscode-outdated") {
+    return i18n.vscodeExtensionOutdatedBody(result.vscodeExtensionVersion, result.browserExtensionVersion);
+  }
+  return i18n.protocolMismatchBody(
+    result.gatewayProtocolVersion?.toString() ?? "unknown",
+    BRIDGE_PROTOCOL_VERSION
+  );
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = parseNumericVersion(left);
+  const rightParts = parseNumericVersion(right);
+  if (!leftParts || !rightParts) {
+    return 0;
+  }
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return 0;
+}
+
+function parseNumericVersion(version: string): number[] | null {
+  return /^\d+(?:\.\d+){1,3}$/.test(version) ? version.split(".").map(Number) : null;
+}
+
+function readBridgeData(): Partial<HandshakeParams> & { currentVscodeExtensionVersion?: string } {
   const dataEl = document.getElementById("mcp-data");
   const rawData = dataEl?.textContent ?? "";
   try {
@@ -310,11 +365,9 @@ function readBridgeData(): Partial<Pick<HandshakeParams, "token" | "siteId" | "t
     }
 
     return {
-      token: readBridgeDataString(parsed, "token"),
-      siteId: readBridgeDataString(parsed, "siteId"),
-      target: readBridgeDataString(parsed, "target"),
       vscodeExtensionVersion: readBridgeDataString(parsed, "vscodeExtensionVersion"),
-      workspaceId: readBridgeDataString(parsed, "workspaceId"),
+      currentVscodeExtensionVersion: readBridgeDataString(parsed, "currentVscodeExtensionVersion"),
+      bridgeProtocolVersion: readBridgeDataNumber(parsed, "bridgeProtocolVersion"),
     };
   } catch {
   }
@@ -329,4 +382,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readBridgeDataString(data: Record<string, unknown>, key: string): string | undefined {
   const value = data[key];
   return typeof value === "string" && value ? value : undefined;
+}
+
+function readBridgeDataNumber(data: Record<string, unknown>, key: string): number | undefined {
+  const value = data[key];
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }

@@ -10,9 +10,17 @@ interface SharedBrandingConfig {
   repositoryUrl: string;
 }
 
+interface SharedBridgeProtocolConfig {
+  version: number;
+}
+
 const sharedIndexPath = normalizePath(resolve(__dirname, '../shared/src/index.ts'));
 const sharedBrandingPath = resolve(__dirname, '../shared/src/branding.json');
+const sharedBridgeProtocolPath = resolve(__dirname, '../shared/src/bridgeProtocol.json');
 const sharedBrandingConfig = JSON.parse(readFileSync(sharedBrandingPath, 'utf8')) as SharedBrandingConfig;
+const sharedBridgeProtocolConfig = JSON.parse(
+  readFileSync(sharedBridgeProtocolPath, 'utf8')
+) as SharedBridgeProtocolConfig;
 const extensionManifest = defineManifest({
   ...manifest,
   content_scripts: manifest.content_scripts.map(script => ({
@@ -25,9 +33,9 @@ function normalizePath(path: string): string {
   return path.replace(/\\/g, '/');
 }
 
-function inlineSharedBrandingConfig(): Plugin {
+function inlineSharedConfig(): Plugin {
   return {
-    name: 'webcode:inline-shared-branding-config',
+    name: 'webcode:inline-shared-config',
     apply: 'serve',
     enforce: 'pre',
     transform(code, id) {
@@ -35,19 +43,23 @@ function inlineSharedBrandingConfig(): Plugin {
         return null;
       }
 
-      // CRXJS dev file-writer treats Vite's external-root JSON import
-      // (/@fs/.../branding.json?import) as an asset and reads it from this
-      // package root. Inline this tiny config in dev to avoid that bad path.
-      return code.replace(
-        /import\s+brandConfig\s+from\s+['"]\.\/branding\.json['"];?/,
-        `const brandConfig = ${JSON.stringify(sharedBrandingConfig)} as const;`
-      );
+      // CRXJS dev file-writer treats Vite's external-root JSON imports as assets
+      // and reads them from this package root. Inline these tiny configs in dev.
+      return code
+        .replace(
+          /import\s+brandConfig\s+from\s+['"]\.\/branding\.json['"];?/,
+          `const brandConfig = ${JSON.stringify(sharedBrandingConfig)} as const;`
+        )
+        .replace(
+          /import\s+bridgeProtocolConfig\s+from\s+['"]\.\/bridgeProtocol\.json['"];?/,
+          `const bridgeProtocolConfig = ${JSON.stringify(sharedBridgeProtocolConfig)} as const;`
+        );
     },
   };
 }
 
 export default defineConfig({
-  plugins: [inlineSharedBrandingConfig(), crx({ manifest: extensionManifest })],
+  plugins: [inlineSharedConfig(), crx({ manifest: extensionManifest })],
   server: {
     port: 5173,
     strictPort: true,

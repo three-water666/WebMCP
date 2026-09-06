@@ -8,10 +8,10 @@ import { getErrorMessage } from './errorUtils';
 import { updateGatewayStatusBar } from './statusBar';
 import type { AISiteConfig, ResolvedAiSiteConfig } from './types';
 import { resolveCommandAllowedRoots } from './commandAllowedRoots';
+import { resolveIdleTimeoutMs } from '../gateway/idleTimeout';
 
 export interface GatewayServiceSnapshot {
     currentPort: number | null;
-    currentToken: string | null;
     isStarting: boolean;
     isRunning: boolean;
 }
@@ -20,7 +20,8 @@ export interface GatewayServiceController {
     start(): Promise<void>;
     stop(): Promise<void>;
     restart(): Promise<void>;
-    markAutoStopped(): void;
+    issueBridgeCode(siteId: string, targetUrl: string): string;
+    markAutoStopped(idleTimeoutMs: number): void;
     markOffline(): void;
     getState(): GatewayServiceSnapshot;
 }
@@ -34,11 +35,10 @@ interface CreateGatewayServiceControllerOptions {
 
 export function createGatewayServiceController(options: CreateGatewayServiceControllerOptions): GatewayServiceController {
     let currentPort: number | null = null;
-    let currentToken: string | null = null;
     let isStarting = false;
     let isRunning = false;
-
-    const getState = () => ({ currentPort, currentToken, isStarting, isRunning });
+    const getState = () => ({ currentPort, isStarting, isRunning });
+    const issueBridgeCode = createBridgeCodeIssuer(options.manager, getState);
 
     const start = async () => {
         if (!hasWorkspaceFolder()) {
@@ -46,7 +46,6 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
                 await options.manager.stop();
             }
             currentPort = null;
-            currentToken = null;
             isStarting = false;
             isRunning = false;
             updateGatewayStatusBar(options.statusBarItem, false);
@@ -60,6 +59,7 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
 
         const config = vscode.workspace.getConfiguration('webcodeGateway');
         const portConfig = config.get<number>('port') ?? 34567;
+        const idleTimeoutMs = resolveIdleTimeoutMs(config.get<number>('idleTimeoutMinutes'));
         const commandConfig = getCommandExecutionConfig(config, options.outputChannel);
         const customServers = filterCustomServers(
             config.get<Record<string, BuiltinServerConfig>>('servers') ?? {},
@@ -75,6 +75,7 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
         try {
             const result = await options.manager.start({
                 port: portConfig,
+                idleTimeoutMs,
                 preferredPort: lastUsedPort,
                 mcpServers: customServers,
                 allowedOrigins,
@@ -84,8 +85,6 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
             });
 
             currentPort = result.port;
-            currentToken = result.token;
-
             if (currentPort !== lastUsedPort) {
                 await options.context.workspaceState.update('mcp.lastPort', currentPort);
             }
@@ -97,16 +96,20 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
             void vscode.window.showErrorMessage(t('start_failed', { message: getErrorMessage(error) }));
             isStarting = false;
             isRunning = false;
+            currentPort = null;
             updateGatewayStatusBar(options.statusBarItem, false);
         }
     };
 
-    const stop = async () => {
-        await options.manager.stop();
+    const markOffline = () => {
         isRunning = false;
         currentPort = null;
-        currentToken = null;
         updateGatewayStatusBar(options.statusBarItem, false);
+    };
+
+    const stop = async () => {
+        await options.manager.stop();
+        markOffline();
         void vscode.window.showInformationMessage(t('server_stopped'));
     };
 
@@ -117,25 +120,34 @@ export function createGatewayServiceController(options: CreateGatewayServiceCont
         void vscode.window.showInformationMessage(t('server_restarted'));
     };
 
-    const markAutoStopped = () => {
-        isRunning = false;
-        updateGatewayStatusBar(options.statusBarItem, false);
-        void vscode.window.showInformationMessage(t('auto_stop_message'));
+    const markAutoStopped = (idleTimeoutMs: number) => {
+        markOffline();
+        const minutes = Math.round(idleTimeoutMs / (60 * 1000));
+        void vscode.window.showInformationMessage(t('auto_stop_message', { minutes }));
         options.outputChannel.appendLine("💤 Auto-shutdown triggered due to inactivity.");
-    };
-
-    const markOffline = () => {
-        isRunning = false;
-        updateGatewayStatusBar(options.statusBarItem, false);
     };
 
     return {
         start,
         stop,
         restart,
+        issueBridgeCode,
         markAutoStopped,
         markOffline,
         getState
+    };
+}
+
+function createBridgeCodeIssuer(
+    manager: GatewayManager,
+    getState: () => GatewayServiceSnapshot
+): (siteId: string, targetUrl: string) => string {
+    return (siteId, targetUrl) => {
+        const state = getState();
+        if (!state.isRunning || !state.currentPort) {
+            throw new Error('Gateway server is not running.');
+        }
+        return manager.issueBridgeCode(siteId, targetUrl);
     };
 }
 

@@ -22,6 +22,7 @@ export default defineConfig({
     `--user-data-dir=${path.join(runDirectory, 'vscode-user-data')}`,
   ],
   env: {
+    WEBCODE_BROWSER_EXTENSION_ROOT: path.join(runDirectory, 'browser-extensions'),
     WEBCODE_EVAL_MODE: '1',
     WEBCODE_EVAL_RUN_DIR: process.env.WEBCODE_EVAL_RUN_DIR,
     WEBCODE_EVAL_TRACE_PATH: process.env.WEBCODE_EVAL_TRACE_PATH,

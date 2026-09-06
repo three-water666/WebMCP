@@ -1,7 +1,12 @@
-import { BRANDING } from '@webcode/shared';
+import { BRANDING, BRIDGE_PROTOCOL_VERSION } from '@webcode/shared';
 
-import { type HandshakeResponse, isStoredSession, type MessageRequest } from '../types';
+import { type HandshakeMessageRequest, type HandshakeResponse, isStoredSession } from '../types';
 import { updateBadge } from './badge';
+import {
+  getBridgeRedemptionError,
+  normalizeRedeemedBridgeSession,
+  type RedeemedBridgeSession,
+} from './bridge_redemption';
 import { fetchInitDataFromGateway } from './init_sync';
 import { getSessionPresetSettings } from './presets';
 import { clearSessionExpiryCheck, scheduleSessionExpiryCheck } from './session_health';
@@ -9,17 +14,23 @@ import { removeSession, saveSession } from './sessions';
 
 interface HandshakeParams {
   port: number;
-  token: string;
-  siteId: string;
+  bridgeCode: string;
+  bridgeProtocolVersion: number;
   force?: boolean;
-  workspaceId: string;
-  targetOrigin: string;
-  targetUrl: string;
   vscodeExtensionVersion: string;
   browserExtensionVersion: string;
 }
 
-export async function handleHandshake(request: MessageRequest, tabId: number | null | undefined): Promise<HandshakeResponse> {
+type BridgeRedemptionResult =
+  | { success: true; session: RedeemedBridgeSession }
+  | { success: false; error: string };
+
+const BRIDGE_REDEMPTION_TIMEOUT_MS = 5000;
+
+export async function handleHandshake(
+  request: HandshakeMessageRequest,
+  tabId: number | null | undefined
+): Promise<HandshakeResponse> {
   const params = getHandshakeParams(request);
 
   if (!tabId) {return { success: false, error: "No Tab ID" };}
@@ -42,15 +53,34 @@ export async function handleHandshake(request: MessageRequest, tabId: number | n
       }
     }
   }
+
+  const redemption = await redeemBridgeCode(
+    params.port,
+    params.bridgeCode,
+    params.browserExtensionVersion,
+    params.bridgeProtocolVersion
+  );
+  if (!redemption.success) {
+    return redemption;
+  }
+  const session = redemption.session;
+  if (session.vscodeExtensionVersion !== params.browserExtensionVersion) {
+    return { success: false, error: "VS Code and browser extension versions do not match." };
+  }
+  if (session.bridgeProtocolVersion !== BRIDGE_PROTOCOL_VERSION) {
+    return { success: false, error: "VS Code and browser bridge protocol versions do not match." };
+  }
+
   await bindSession(tabId, {
     port: params.port,
-    token: params.token,
-    workspaceId: params.workspaceId,
-    siteId: params.siteId,
-    targetOrigin: params.targetOrigin,
-    targetUrl: params.targetUrl,
+    token: session.token,
+    workspaceId: session.workspaceId,
+    siteId: session.siteId,
+    targetOrigin: session.targetOrigin,
+    targetUrl: session.targetUrl,
+    idleTimeoutMs: session.idleTimeoutMs,
   });
-  return { success: true };
+  return { success: true, targetUrl: session.targetUrl };
 }
 
 interface BindSessionOptions {
@@ -60,6 +90,7 @@ interface BindSessionOptions {
   siteId: string;
   targetOrigin: string;
   targetUrl: string;
+  idleTimeoutMs: number;
 }
 
 export async function bindSession(tabId: number, options: BindSessionOptions) {
@@ -73,12 +104,13 @@ export async function bindSession(tabId: number, options: BindSessionOptions) {
     autoApproveTools: presetSettings.defaultAutoApproveTools,
     workspaceId: options.workspaceId,
     lastGatewayActivityAt,
+    gatewayIdleTimeoutMs: options.idleTimeoutMs,
     siteId: options.siteId,
     targetOrigin: options.targetOrigin,
     targetUrl: options.targetUrl,
   };
   await saveSession(tabId, session);
-  scheduleSessionExpiryCheck(tabId, lastGatewayActivityAt);
+  scheduleSessionExpiryCheck(tabId, lastGatewayActivityAt, options.idleTimeoutMs);
   console.log(`${BRANDING.logPrefix} Tab ${tabId} bound to Port ${options.port} [Workspace: ${options.workspaceId}]`);
   updateBadge(tabId, true);
   // [Sync] Notify Content Script
@@ -98,13 +130,10 @@ function ignoreRuntimeError(_error: unknown): void {
   void chrome.runtime.lastError;
 }
 
-function getHandshakeParams(request: MessageRequest): HandshakeParams | null {
+function getHandshakeParams(request: HandshakeMessageRequest): HandshakeParams | null {
   if (
     !isValidPort(request.port) ||
-    !isNonEmptyString(request.token) ||
-    !isNonEmptyString(request.siteId) ||
-    !isNonEmptyString(request.targetOrigin) ||
-    !isNonEmptyString(request.targetUrl) ||
+    !isNonEmptyString(request.bridgeCode) ||
     !isCompatibleExtensionVersions(request)
   ) {
     return null;
@@ -112,35 +141,66 @@ function getHandshakeParams(request: MessageRequest): HandshakeParams | null {
 
   return {
     port: request.port,
-    token: request.token,
-    siteId: request.siteId,
+    bridgeCode: request.bridgeCode,
+    bridgeProtocolVersion: request.bridgeProtocolVersion,
     force: request.force,
-    workspaceId: request.workspaceId ?? 'global',
-    targetOrigin: request.targetOrigin,
-    targetUrl: request.targetUrl,
     vscodeExtensionVersion: request.vscodeExtensionVersion,
     browserExtensionVersion: request.browserExtensionVersion,
   };
 }
 
 function isValidPort(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535;
 }
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function isCompatibleExtensionVersions(request: MessageRequest): request is MessageRequest & {
-  vscodeExtensionVersion: string;
-  browserExtensionVersion: string;
-} {
+function isCompatibleExtensionVersions(request: HandshakeMessageRequest): boolean {
   const currentBrowserVersion = chrome.runtime.getManifest().version;
 
   return isNonEmptyString(request.vscodeExtensionVersion) &&
     isNonEmptyString(request.browserExtensionVersion) &&
+    request.bridgeProtocolVersion === BRIDGE_PROTOCOL_VERSION &&
     request.vscodeExtensionVersion === currentBrowserVersion &&
     request.browserExtensionVersion === currentBrowserVersion;
+}
+
+async function redeemBridgeCode(
+  port: number,
+  bridgeCode: string,
+  browserExtensionVersion: string,
+  bridgeProtocolVersion: number
+): Promise<BridgeRedemptionResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BRIDGE_REDEMPTION_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/bridge/redeem`, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bridgeCode, browserExtensionVersion, bridgeProtocolVersion }),
+      signal: controller.signal,
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        success: false,
+        error: getBridgeRedemptionError(body),
+      };
+    }
+
+    const session = normalizeRedeemedBridgeSession(body);
+    return session
+      ? { success: true, session }
+      : { success: false, error: "Gateway returned an invalid bridge session." };
+  } catch {
+    return { success: false, error: "Gateway bridge redemption failed." };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function findConflictTabId(port: number, tabId: number): Promise<string | null> {

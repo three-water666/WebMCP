@@ -35,6 +35,7 @@ const userDataDirectory = path.join(sessionDirectory, 'user-data');
 const extensionsDirectory = path.join(sessionDirectory, 'extensions');
 const settingsDirectory = path.join(userDataDirectory, 'User');
 const browserProfileRoot = path.join(evalsRoot, 'manual-browser-profiles');
+const browserExtensionRoot = path.join(evalsRoot, 'manual-browser-extensions');
 
 await fs.mkdir(settingsDirectory, { recursive: true });
 await fs.mkdir(extensionsDirectory, { recursive: true });
@@ -54,6 +55,7 @@ console.log('Manual webcode test environment ready to launch.');
 console.log(`Workspace: ${workspacePath}`);
 console.log(`VS Code user data: ${userDataDirectory}`);
 console.log(`Browser profiles: ${browserProfileRoot}`);
+console.log(`Browser bridge: ${browserExtensionRoot}`);
 console.log('Start Gateway and choose the AI site inside the Extension Development Host.');
 console.log('Close the browser and VS Code windows manually when testing is complete.');
 
@@ -91,8 +93,11 @@ async function requireWorkspaceDirectory(workspaceDirectory) {
 function launchVsCode(executablePath, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(executablePath, args, {
-      cwd: workspacePath,
-      env: process.env,
+    cwd: workspacePath,
+    env: {
+      ...process.env,
+      WEBCODE_BROWSER_EXTENSION_ROOT: browserExtensionRoot,
+    },
       shell: false,
       stdio: 'inherit',
       windowsHide: false,

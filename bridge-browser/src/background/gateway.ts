@@ -1,6 +1,12 @@
 import { PROTOCOL } from '@webcode/shared';
 
-import { isRecord, type MessageRequest, type ToolExecutionTransportPayload } from '../types';
+import {
+  type ApproveToolMessageRequest,
+  type ExecuteToolMessageRequest,
+  isRecord,
+  type PreflightToolMessageRequest,
+  type ToolExecutionTransportPayload,
+} from '../types';
 import { formatGatewayToolResultData, parseGatewayToolResult } from '../modules/tool_result';
 import { getErrorMessage } from './errors';
 import { expireGatewaySession, recordGatewayActivity } from './session_health';
@@ -21,7 +27,7 @@ export type ToolPreflightResponse = {
 };
 
 export async function executeTool(
-  request: MessageRequest,
+  request: ExecuteToolMessageRequest,
   tabId: number | null | undefined,
   senderUrl?: string
 ) {
@@ -72,7 +78,7 @@ export async function executeTool(
 }
 
 export async function preflightTool(
-  request: MessageRequest,
+  request: PreflightToolMessageRequest,
   tabId: number | null | undefined,
   senderUrl?: string
 ): Promise<ToolPreflightResponse> {
@@ -118,7 +124,7 @@ export async function preflightTool(
 }
 
 export async function approveTool(
-  request: MessageRequest,
+  request: ApproveToolMessageRequest,
   tabId: number | null | undefined,
   senderUrl?: string
 ): Promise<{ success: boolean; approvalToken?: string; error?: string }> {
@@ -215,7 +221,9 @@ function isCommandRisk(value: unknown): value is NonNullable<ToolPreflightRespon
     && value.reasons.every((reason) => typeof reason === "string");
 }
 
-function getToolPayload(request: MessageRequest): ToolExecutionTransportPayload | null {
+function getToolPayload(
+  request: ExecuteToolMessageRequest | PreflightToolMessageRequest
+): ToolExecutionTransportPayload | null {
   return request.payload && typeof request.payload.name === "string" ? request.payload : null;
 }
 

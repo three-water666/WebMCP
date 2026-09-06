@@ -1,7 +1,17 @@
 import * as assert from 'assert';
 import * as path from 'path';
 
-import { browserCommandLineUsesProfile } from '../extension/processDetection';
+import {
+    executeFileText,
+    getBrowserFamilyForExecutableName
+} from '../extension/browserProcessList';
+import {
+    browserArgumentsUseProfile,
+    browserCommandLineUsesProfile,
+    commandLineHasExactArgument,
+    getBrowserBridgeMarkerArgument,
+    getBrowserProfileMarkerArgument
+} from '../extension/processDetection';
 
 suite('Browser process detection', () => {
     test('matches user data dir passed with equals syntax', () => {
@@ -84,5 +94,72 @@ suite('Browser process detection', () => {
             browserCommandLineUsesProfile(`msedge.exe --user-data-dir="${escapedProfileDir}"`, profileDir, 'win32'),
             true
         );
+    });
+
+    test('preserves POSIX argv values containing spaces', () => {
+        const profileDir = '/Users/me/Library/Application Support/webcode/edge';
+
+        assert.strictEqual(
+            browserArgumentsUseProfile(
+                ['/Applications/Microsoft Edge', `--user-data-dir=${profileDir}`, '--no-first-run'],
+                profileDir,
+                'darwin'
+            ),
+            true
+        );
+    });
+
+    test('recognizes an encoded profile marker in flattened macOS ps output', () => {
+        const profileDir = '/Users/me/Library/Application Support/webcode/edge';
+        const marker = getBrowserProfileMarkerArgument(profileDir, 'darwin');
+        const commandLine = [
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+            `--user-data-dir=${profileDir}`,
+            marker,
+            '--no-first-run'
+        ].join(' ');
+
+        assert.strictEqual(marker.includes(' '), false);
+        assert.strictEqual(commandLineHasExactArgument(commandLine, marker), true);
+        assert.strictEqual(browserCommandLineUsesProfile(commandLine, profileDir, 'darwin'), true);
+        assert.strictEqual(commandLineHasExactArgument(commandLine, `${marker}0`), false);
+    });
+
+    test('matches a legacy unquoted macOS profile path flattened by ps', () => {
+        const profileDir = '/Users/me/Library/Application Support/webcode/edge';
+        const commandLine = [
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+            `--user-data-dir=${profileDir}`,
+            '--load-extension=/Users/me/Library/Application Support/webcode/browser-extensions/bridge'
+        ].join(' ');
+
+        assert.strictEqual(browserCommandLineUsesProfile(commandLine, profileDir, 'darwin'), true);
+    });
+
+    test('creates one stable marker for every process loading the shared bridge', () => {
+        const extensionPath = '/Users/me/Library/Application Support/webcode/browser-extensions/bridge';
+
+        assert.strictEqual(
+            getBrowserBridgeMarkerArgument(extensionPath, 'darwin'),
+            getBrowserBridgeMarkerArgument(`${extensionPath}/`, 'darwin')
+        );
+        assert.strictEqual(getBrowserBridgeMarkerArgument(extensionPath, 'darwin').includes(' '), false);
+    });
+
+    test('recognizes every supported Windows Chromium executable', () => {
+        assert.strictEqual(getBrowserFamilyForExecutableName('chrome.exe', 'win32'), 'chrome');
+        assert.strictEqual(getBrowserFamilyForExecutableName('chrome-for-testing.exe', 'win32'), 'chrome');
+        assert.strictEqual(getBrowserFamilyForExecutableName('chromium.exe', 'win32'), 'chrome');
+        assert.strictEqual(getBrowserFamilyForExecutableName('msedge.exe', 'win32'), 'edge');
+    });
+
+    test('captures process command output larger than the execFile default buffer', async () => {
+        const outputSize = 2 * 1024 * 1024;
+        const output = await executeFileText(process.execPath, [
+            '-e',
+            `process.stdout.write('x'.repeat(${outputSize}))`
+        ]);
+
+        assert.strictEqual(output.length, outputSize);
     });
 });

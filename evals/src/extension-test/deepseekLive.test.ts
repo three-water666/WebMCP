@@ -142,7 +142,7 @@ async function configureGateway(mcpServers: Array<{
 
 async function launchLiveBrowser(browserPath: string, profilePath: string): Promise<BrowserContext> {
     const repoRoot = path.resolve(__dirname, '..', '..', '..');
-    const bridgeExtensionPath = path.join(repoRoot, 'bridge-browser', 'dist');
+    const bridgeExtensionPath = path.join(repoRoot, 'gateway-vscode', 'browser-extension');
     return chromium.launchPersistentContext(profilePath, {
         executablePath: browserPath,
         headless: false,

@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 
 import { registerGatewayConfigurationWatcher } from './extension/configurationWatcher';
-import { buildBridgeUrl } from './extension/browserLauncher';
+import { buildBridgeUrl } from './extension/bridgeUrl';
+import { createBrowserExtensionManager } from './extension/browserExtensionManager';
 import { registerGatewayConnectCommand } from './extension/connectCommand';
 import { registerCopyContextCommand } from './extension/copyContextCommand';
 import { registerIsolatedProfileCleanupCommand } from './extension/isolatedProfileCleanupCommand';
@@ -71,8 +72,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
         outputChannel,
         context.extensionPath,
         context,
-        () => {
-            runtime.serviceController?.markAutoStopped();
+        idleTimeoutMs => {
+            runtime.serviceController?.markAutoStopped(idleTimeoutMs);
         },
         createGatewayRuntimeTraceSinkFromEnvironment()
     );
@@ -98,7 +99,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
 
     // 创建 VS Code 侧服务控制器。它把“启动网关需要读取哪些配置、保存端口、
     // 更新状态栏、展示启动失败/停止/重启消息”封装起来，命令菜单和配置监听
-    // 都通过这个对象控制服务，避免各处直接修改 currentPort/currentToken/isRunning。
+    // 都通过这个对象控制服务，避免各处直接修改 currentPort/isRunning。
     const serviceController = createGatewayServiceController({
         manager,
         context,
@@ -109,6 +110,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
     // 把 controller 写回 holder，补上 GatewayManager 自动停止回调需要的引用。
     // 从这一行之后，manager 的 watchdog 触发自动关闭时可以正确同步 VS Code UI 状态。
     runtime.serviceController = serviceController;
+
+    // bundled bridge 会先复制到版本无关的用户数据目录。准备过程不阻塞扩展激活；
+    // 真正启动隔离浏览器时仍会等待同一个任务完成，并在需要时提示重启旧进程。
+    const browserExtensionManager = createBrowserExtensionManager(context, outputChannel);
+    browserExtensionManager.prepareInBackground();
 
     // 注册编辑器右键菜单命令：复制当前选中文本，并在剪贴板里附带相对文件路径。
     // 该命令和网关服务本身没有运行依赖，所以激活时直接注册。
@@ -121,7 +127,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
     registerGatewayConnectCommand({
         context,
         outputChannel,
-        serviceController
+        serviceController,
+        browserExtensionManager
     });
 
     // 注册 webcodeGateway 配置监听。端口、MCP server、技能目录变化时，
@@ -163,10 +170,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Gatewa
             async startAndCreateBridgeUrl(siteId: string, targetUrl: string): Promise<string> {
                 await serviceController.start();
                 const state = serviceController.getState();
-                if (!state.isRunning || !state.currentPort || !state.currentToken) {
+                if (!state.isRunning || !state.currentPort) {
                     throw new Error('Evaluation Gateway failed to start.');
                 }
-                return buildBridgeUrl(state.currentPort, state.currentToken, siteId, targetUrl);
+                const bridgeCode = serviceController.issueBridgeCode(siteId, targetUrl);
+                return buildBridgeUrl(state.currentPort, bridgeCode);
             },
             async stop(): Promise<void> {
                 await serviceController.stop();

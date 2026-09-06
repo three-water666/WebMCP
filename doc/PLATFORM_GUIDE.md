@@ -194,12 +194,12 @@ const BUILTIN_AI_SITES: ResolvedAiSiteConfig[] = [
 从 VS Code 打开站点时：
 
 1. 用户在 VS Code 状态栏菜单选择某个站点。
-2. VS Code 打开 `/bridge?bridgeToken=...&siteId=<id>&target=<address>`。
-3. Gateway 校验 `bridgeToken`、`siteId` 和 `target`；`target` 必须属于该站点的 `address`。
-4. Gateway 在 bridge 页面里写入 VS Code 扩展版本。
-5. 浏览器 bridge 页面从页面数据读取 token，再读取浏览器扩展版本，要求它和 VS Code 扩展版本完全一致。
-6. 版本一致后，bridge 页面握手，把 `siteId`、`targetOrigin`、`targetUrl` 写进 `session_<tabId>`。
-7. background 异步请求 `/v1/init`，把 prompts 和 `syncedAiSites` 写进 `chrome.storage.local`。
+2. Gateway 生成一个绑定 `siteId` 和目标地址、60 秒后过期且只能使用一次的 bridge code。
+3. VS Code 只打开 `/bridge?bridgeCode=...`，长期 API Token 不进入 URL 或浏览器启动参数。
+4. Gateway 返回不可缓存的 bridge 页面，并在页面数据里写入 VS Code 扩展版本。
+5. bridge 页面读取 code 后立即从地址栏移除它，并要求浏览器扩展版本和 VS Code 扩展版本完全一致。
+6. 版本一致后，background 调用 `/v1/bridge/redeem`；Gateway 原子消费 code，再返回仅对当前 Gateway 运行有效的新会话 Token、`siteId`、`targetOrigin` 和 `targetUrl`。
+7. background 把会话数据写进 `session_<tabId>`，再异步请求 `/v1/init`，把 prompts 和 `syncedAiSites` 写进 `chrome.storage.local`。
 8. 目标 AI 页面里的 content script 通过 `GET_STATUS` 拿到 `siteId`。
 9. content script 用 `siteId` 在 `syncedAiSites` 中查 selectors 和可选 capture 配置。
 

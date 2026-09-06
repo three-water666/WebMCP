@@ -32,6 +32,8 @@ export function registerGatewayConfigurationWatcher(options: RegisterGatewayConf
 
 function isGatewayServerConfigurationChange(event: vscode.ConfigurationChangeEvent): boolean {
     return event.affectsConfiguration('webcodeGateway.port') ||
+        event.affectsConfiguration('webcodeGateway.idleTimeoutMinutes') ||
+        event.affectsConfiguration('webcodeGateway.aiSites') ||
         event.affectsConfiguration('webcodeGateway.servers') ||
         event.affectsConfiguration('webcodeGateway.skillDirectories') ||
         event.affectsConfiguration('webcodeGateway.commandShell.path') ||

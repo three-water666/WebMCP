@@ -1,6 +1,6 @@
 import { BRANDING } from '@webcode/shared';
 
-import { type MessageRequest } from '../types';
+import { type ShowNotificationMessageRequest } from '../types';
 import { getErrorMessage } from './errors';
 
 const NOTIFICATION_ID_PREFIX = "webcode-tab";
@@ -32,7 +32,7 @@ export async function updateWindowAttention(
 }
 
 export async function showNotification(
-  request: MessageRequest,
+  request: ShowNotificationMessageRequest,
   sender: chrome.runtime.MessageSender
 ): Promise<{ success: boolean; skipped?: boolean; notificationId?: string; error?: string }> {
   try {
@@ -76,7 +76,7 @@ async function shouldShowNotificationForSender(sender: chrome.runtime.MessageSen
 }
 
 function createNotification(
-  request: MessageRequest,
+  request: ShowNotificationMessageRequest,
   sender: chrome.runtime.MessageSender
 ): Promise<string> {
   return new Promise((resolve, reject) => {

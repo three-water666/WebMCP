@@ -208,7 +208,7 @@ function startBrowserHost(bridgeUrl, targetUrl) {
 }
 
 async function prepareBrowserExtension() {
-  const sourcePath = path.join(repoRoot, 'bridge-browser', 'dist');
+  const sourcePath = path.join(repoRoot, 'gateway-vscode', 'browser-extension');
   await fs.cp(sourcePath, browserExtensionPath, {
     recursive: true,
     errorOnExist: true,

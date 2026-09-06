@@ -69,7 +69,7 @@ suite('Deterministic minimal E2E', () => {
         });
 
         const repoRoot = path.resolve(__dirname, '..', '..', '..');
-        const bridgeExtensionPath = path.join(repoRoot, 'bridge-browser', 'dist');
+        const bridgeExtensionPath = path.join(repoRoot, 'gateway-vscode', 'browser-extension');
         browserContext = await chromium.launchPersistentContext(path.join(runDirectory, 'browser-profile'), {
             executablePath: browserPath,
             headless: false,

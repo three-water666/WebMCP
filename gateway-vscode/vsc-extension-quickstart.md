@@ -37,7 +37,10 @@
 * Put unit tests in `src/unit-test/**/*.test.ts`.
 * Put VS Code Extension Host tests in `src/extension-test/**/*.test.ts`.
 * Run `pnpm run test:extension` from the repository root to execute Extension Host tests.
-* Extension Host tests use VS Code 1.106.1 by default. Set `VSCODE_TEST_VERSION` to test another version.
+* Extension Host tests use a detected local VS Code installation by default. Set
+  `WEBCODE_EVAL_VSCODE_PATH` to select another executable.
+* Set `WEBCODE_EVAL_VSCODE_PATH=download` to download an isolated test runtime. Its version defaults
+  to 1.106.1 and can be changed with `VSCODE_TEST_VERSION`.
 * The Extension Host command fails when no compiled test files are found.
 
 ## Go further

@@ -6,7 +6,7 @@ import { looksLikeToolCall, parseToolCall } from "../modules/toolCallProtocol";
 import { BRANDING, PROTOCOL } from "@webcode/shared";
 import {
   getSiteNetworkCaptureConfig, getSyncedAiSites, isMessageRequest, isSiteSelectors, isStatusResponse,
-  type MessageRequest, type SyncedAiSite,
+  type StatusUpdateMessageRequest, type SyncedAiSite,
 } from "../types";
 import { AutoInitPromptController } from "./auto_init_prompt";
 import { createApprovalState, parseStoredApprovalEntries, type ApprovalState } from "./approval_policy";
@@ -90,7 +90,7 @@ function handleRuntimeMessage(request: unknown, sendResponse: RuntimeSendRespons
   }
 }
 
-function handleStatusUpdate(request: MessageRequest): void {
+function handleStatusUpdate(request: StatusUpdateMessageRequest): void {
   const wasConnected = isClientConnected;
   const wasWorkspaceId = currentWorkspaceId;
   const wasSiteId = currentSiteId;
@@ -114,7 +114,7 @@ function handleStatusUpdate(request: MessageRequest): void {
   }
 }
 
-function applyStatusUpdateFields(request: MessageRequest): void {
+function applyStatusUpdateFields(request: StatusUpdateMessageRequest): void {
   isClientConnected = request.connected === true;
   if (typeof request.workspaceId === "string") {currentWorkspaceId = request.workspaceId;}
   if (typeof request.siteId === "string") {currentSiteId = request.siteId;}

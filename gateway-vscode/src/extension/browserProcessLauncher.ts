@@ -8,84 +8,87 @@ export interface BrowserLaunchCommand {
     prefixArgs: string[];
 }
 
+interface BrowserLaunchAttempt {
+    success: boolean;
+    failure?: string;
+}
+
 const BROWSER_STABLE_LAUNCH_MS = 1000;
 
-export function launchFirstAvailableBrowser(
+export async function launchFirstAvailableBrowser(
     launchCommands: BrowserLaunchCommand[],
     browserArgs: string[],
     browserName: string
-): void {
-    const tryLaunch = (index: number, lastFailure?: string) => {
-        const launchCommand = launchCommands[index];
-        if (!launchCommand) {
-            showLaunchFailure(browserName, lastFailure);
-            return;
+): Promise<boolean> {
+    let lastFailure: string | undefined;
+    for (const launchCommand of launchCommands) {
+        const result = await launchBrowserCandidate(launchCommand, browserArgs, browserName);
+        if (result.success) {
+            return true;
         }
+        lastFailure = result.failure ?? lastFailure;
+    }
 
-        launchBrowserCandidate(launchCommand, browserArgs, browserName, failure => {
-            tryLaunch(index + 1, failure ?? lastFailure);
-        });
-    };
-
-    tryLaunch(0);
+    showLaunchFailure(browserName, lastFailure);
+    return false;
 }
 
 function launchBrowserCandidate(
     launchCommand: BrowserLaunchCommand,
     browserArgs: string[],
-    browserName: string,
-    onFailure: (failure?: string) => void
-): void {
-    let settled = false;
-    let stableTimer: NodeJS.Timeout | undefined;
-    const child = spawn(launchCommand.command, [...launchCommand.prefixArgs, ...browserArgs], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: false
-    });
-
-    const continueWithFailure = (failure: string | undefined) => {
-        if (settled) {
-            return;
-        }
-
-        settled = true;
-        if (stableTimer) {
-            clearTimeout(stableTimer);
-        }
-
-        onFailure(failure);
-    };
-
-    child.once('error', (error: NodeJS.ErrnoException) => {
-        continueWithFailure(error.code === 'ENOENT' ? undefined : error.message);
-    });
-
-    child.once('spawn', () => {
-        stableTimer = setTimeout(() => {
-            settled = true;
-            child.unref();
-        }, BROWSER_STABLE_LAUNCH_MS);
-    });
-
-    child.once('close', (code, signal) => {
-        if (settled) {
-            return;
-        }
-
-        if (code === 0) {
+    browserName: string
+): Promise<BrowserLaunchAttempt> {
+    return new Promise(resolve => {
+        let settled = false;
+        let stableTimer: NodeJS.Timeout | undefined;
+        const settle = (result: BrowserLaunchAttempt) => {
+            if (settled) {
+                return;
+            }
             settled = true;
             if (stableTimer) {
                 clearTimeout(stableTimer);
             }
+            resolve(result);
+        };
+
+        let child;
+        try {
+            child = spawn(launchCommand.command, [...launchCommand.prefixArgs, ...browserArgs], {
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: false
+            });
+        } catch (error: unknown) {
+            settle({ success: false, failure: error instanceof Error ? error.message : String(error) });
             return;
         }
 
-        continueWithFailure(t('browser_exited_immediately', {
-            browser: browserName,
-            command: launchCommand.command,
-            reason: formatBrowserExitReason(code, signal)
-        }));
+        child.once('error', (error: NodeJS.ErrnoException) => {
+            settle({ success: false, failure: error.code === 'ENOENT' ? undefined : error.message });
+        });
+
+        child.once('spawn', () => {
+            stableTimer = setTimeout(() => {
+                child.unref();
+                settle({ success: true });
+            }, BROWSER_STABLE_LAUNCH_MS);
+        });
+
+        child.once('close', (code, signal) => {
+            if (code === 0) {
+                settle({ success: true });
+                return;
+            }
+            settle({
+                success: false,
+                failure: t('browser_exited_immediately', {
+                    browser: browserName,
+                    command: launchCommand.command,
+                    reason: formatBrowserExitReason(code, signal)
+                })
+            });
+        });
     });
 }
 

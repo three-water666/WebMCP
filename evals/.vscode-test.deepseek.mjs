@@ -1,8 +1,10 @@
 import { defineConfig } from '@vscode/test-cli';
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 const extensionDevelopmentPath = fileURLToPath(new URL('../gateway-vscode', import.meta.url));
 const workspaceFolder = requireEnvironmentPath('WEBCODE_EVAL_WORKSPACE');
+const runDirectory = requireEnvironmentPath('WEBCODE_EVAL_RUN_DIR');
 const vscodeExecutablePath = process.env.WEBCODE_EVAL_VSCODE_PATH?.trim();
 
 export default defineConfig({
@@ -16,6 +18,7 @@ export default defineConfig({
     '--skip-welcome',
   ],
   env: {
+    WEBCODE_BROWSER_EXTENSION_ROOT: path.join(runDirectory, 'browser-extensions'),
     WEBCODE_EVAL_MODE: '1',
     WEBCODE_EVAL_BROWSER_PATH: process.env.WEBCODE_EVAL_BROWSER_PATH,
     WEBCODE_EVAL_RUN_DIR: process.env.WEBCODE_EVAL_RUN_DIR,

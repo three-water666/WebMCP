@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr/Dq8HZWC/iTQjLSY7aijxZFNROrBVft2FG9GNitQk8SP0cNXD6pJlC4SBGrCjz9g/27bPdz0gxhMKm6qZYWPtpRkQr3tACiQfvOh8IUaPmvlAnyHDM0BYrYv1x3k1N8vssjvJ4jDFsXZ9wRxgxOZxmdW3V63R8ZFu1UPQkdTKn2RSXnGpBMaQEd3lP1BHZlFCARiou+cfZVK/tX0GL08IHk/sitULt/gnZl6/t4vvrqA/yiDDV2SAEgpEKEAJfz+J3YELz+H6PtnN0HX55f7mHQOBepeFHyLoGGwM99T/1Nk9pvk64uU0oK1PTaSGR1WV5w6im36Emqg6GoaUPIaQIDAQAB",
   "minimum_chrome_version": "111",
   "name": "__MSG_extensionName__",
   "version": "1.1.0",

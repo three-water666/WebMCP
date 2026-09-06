@@ -1,5 +1,4 @@
 import express from 'express';
-import * as crypto from 'crypto';
 import type { Server as HttpServer } from 'http';
 import * as vscode from 'vscode';
 
@@ -13,11 +12,18 @@ import {
     type ToolDefinition,
     type ToolExecutionContext
 } from './tools';
-import { registerBridgeRoute } from './gateway/bridgeRoute';
+import {
+    registerBridgeRoute,
+    resolveAllowedBridgeTarget,
+    resolveBridgeSite
+} from './gateway/bridgeRoute';
+import { BridgeSessionManager } from './gateway/bridgeSession';
 import { registerConfigRoutes } from './gateway/initRoutes';
+import { DEFAULT_IDLE_TIMEOUT_MINUTES, formatIdleTimeoutMinutes } from './gateway/idleTimeout';
 import {
     createAuthMiddleware,
     createCorsMiddleware,
+    createGatewayActivityMiddleware,
     createRequestLoggerMiddleware
 } from './gateway/middleware';
 import { connectToConfiguredServers } from './gateway/serverConnector';
@@ -46,23 +52,24 @@ export class GatewayManager {
     private outputChannel: vscode.OutputChannel;
     private extensionPath: string;
     private context: vscode.ExtensionContext;
-    private authToken: string = '';
     private watchdogTimer: NodeJS.Timeout | null = null;
-    private readonly WATCHDOG_TIMEOUT = 30 * 60 * 1000; // 30 minutes
-    private onAutoStop: (() => void) | null = null;
+    private idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MINUTES * 60 * 1000;
+    private onAutoStop: ((idleTimeoutMs: number) => void) | null = null;
     private skillManager: SkillManager;
     private terminalSessionManager: TerminalSessionManager;
     private skillDirectories: string[] = [];
+    private currentAiSites: NonNullable<GatewayConfig['aiSites']> = [];
     private commandShellPath: string | undefined;
     private commandAllowedRoots: string[] = [];
     private readonly commandApprovalManager = new CommandApprovalManager();
+    private readonly bridgeSessionManager = new BridgeSessionManager();
     private readonly traceSink: GatewayRuntimeTraceSink | undefined;
 
     constructor(
         outputChannel: vscode.OutputChannel,
         extensionPath: string,
         context: vscode.ExtensionContext,
-        onAutoStop?: () => void,
+        onAutoStop?: (idleTimeoutMs: number) => void,
         traceSink?: GatewayRuntimeTraceSink
     ) {
         this.outputChannel = outputChannel;
@@ -72,8 +79,6 @@ export class GatewayManager {
         this.traceSink = traceSink;
         this.skillManager = new SkillManager(outputChannel, extensionPath, () => vscode.workspace.workspaceFolders);
         this.terminalSessionManager = new TerminalSessionManager(outputChannel);
-        // [Persistence] Generate token once per VS Code session
-        this.authToken = crypto.randomUUID();
     }
 
     private _generateGroupedTools() {
@@ -102,10 +107,10 @@ export class GatewayManager {
     private resetWatchdog() {
         if (this.watchdogTimer) {clearTimeout(this.watchdogTimer);}
         this.watchdogTimer = setTimeout(() => {
-            this.log('💤 No activity for 30 minutes. Shutting down...');
+            this.log(`💤 No activity for ${formatIdleTimeoutMinutes(this.idleTimeoutMs)} minutes. Shutting down...`);
             void this.stop();
-            if (this.onAutoStop) {this.onAutoStop();}
-        }, this.WATCHDOG_TIMEOUT);
+            if (this.onAutoStop) {this.onAutoStop(this.idleTimeoutMs);}
+        }, this.idleTimeoutMs);
     }
 
     private log(message: string) {
@@ -158,26 +163,46 @@ export class GatewayManager {
         });
     }
 
+    issueBridgeCode(siteId: string, targetUrl: string): string {
+        if (!this.server) {
+            throw new Error('Gateway server is not running.');
+        }
+
+        const site = resolveBridgeSite(siteId, this.currentAiSites);
+        const resolvedTarget = site ? resolveAllowedBridgeTarget(targetUrl, site) : null;
+        if (!site || !resolvedTarget) {
+            throw new Error('Bridge target does not match a configured AI site.');
+        }
+
+        return this.bridgeSessionManager.issueBridgeCode({
+            siteId: site.id,
+            targetUrl: resolvedTarget
+        });
+    }
+
     private registerRoutes(config: GatewayConfig): void {
         if (!this.app) {return;}
 
         this.app.use(createCorsMiddleware(config, this.log.bind(this)));
-        this.app.use(createRequestLoggerMiddleware(
-            () => this.resetWatchdog(),
-            this.log.bind(this),
-            { skipWatchdogPaths: ['/v1/status'] }
+        this.app.use(createRequestLoggerMiddleware(this.log.bind(this)));
+        registerBridgeRoute(this.app, {
+            activateSession: () => this.bridgeSessionManager.activateSession(),
+            consumeBridgeCode: code => this.bridgeSessionManager.consumeBridgeCode(code),
+            getBridgeLaunch: code => this.bridgeSessionManager.getBridgeLaunch(code),
+            getAiSites: () => config.aiSites ?? [],
+            getExtensionVersion: () => this.getExtensionVersion(),
+            getIdleTimeoutMs: () => this.idleTimeoutMs,
+            getWorkspaceRoot: () => this.getPrimaryWorkspaceRoot(),
+            log: this.log.bind(this),
+            recordActivity: () => this.resetWatchdog()
+        });
+        this.app.use(createAuthMiddleware(
+            token => this.bridgeSessionManager.isSessionTokenValid(token),
+            this.log.bind(this)
         ));
-        this.app.use(createAuthMiddleware(() => this.authToken, this.log.bind(this)));
+        this.app.use(createGatewayActivityMiddleware(() => this.resetWatchdog()));
 
         registerConfigRoutes(this.app, config, this.log.bind(this));
-        registerBridgeRoute(this.app, {
-            getPort: () => this.getServerPort(),
-            getAiSites: () => config.aiSites ?? [],
-            getAuthToken: () => this.authToken,
-            getExtensionVersion: () => this.getExtensionVersion(),
-            getWorkspaceRoot: () => this.getPrimaryWorkspaceRoot(),
-            log: this.log.bind(this)
-        });
 
         const toolCallOptions = {
             commandApprovalManager: this.commandApprovalManager,
@@ -195,14 +220,6 @@ export class GatewayManager {
         this.app.post('/v1/tools/call', createToolCallHandler(toolCallOptions));
     }
 
-    private getServerPort(): number {
-        const address = this.server?.address();
-        if (!address || typeof address === 'string') {
-            throw new Error('Gateway server is not listening on a TCP port.');
-        }
-        return address.port;
-    }
-
     private getExtensionVersion(): string {
         const version = (this.context.extension.packageJSON as { version?: unknown }).version;
         return typeof version === 'string' && version.trim() ? version : 'unknown';
@@ -216,17 +233,16 @@ export class GatewayManager {
         const commandShellPath = config.commandShellPath?.trim();
         this.commandShellPath = commandShellPath === '' ? undefined : commandShellPath;
         this.commandAllowedRoots = config.commandAllowedRoots ?? [];
+        this.currentAiSites = config.aiSites ?? [];
+        this.idleTimeoutMs = config.idleTimeoutMs;
         this.commandApprovalManager.clear();
+        this.bridgeSessionManager.clear();
         this.trace({
             event: 'gateway_starting',
             status: 'started',
             details: { requestedPort: config.port }
         });
         await this.connectToServers(config.mcpServers);
-
-        // 1. 使用持久化 Token (仅首次生成)
-        if (!this.authToken) {this.authToken = crypto.randomUUID();}
-        // this.log(`🔐 Security Token: ${this.authToken}`); // Reduce noise on restart
 
         // Start Watchdog
         this.resetWatchdog();
@@ -249,14 +265,14 @@ export class GatewayManager {
 
                 if (!this.app) {return;}
                 this.server = this.app.listen(currentPort, '127.0.0.1', () => {
-                    this.log(`🌐 Gateway running on http://127.0.0.1:${currentPort} (Token: ${this.authToken.slice(0, 8)}...)`);
+                    this.log(`🌐 Gateway running on http://127.0.0.1:${currentPort}`);
                     this.trace({
                         event: 'gateway_started',
                         status: 'success',
                         details: { port: currentPort }
                     });
                     vscode.window.setStatusBarMessage(`MCP Gateway: On (${currentPort})`, 5000);
-                    resolve({ port: currentPort, token: this.authToken });
+                    resolve({ port: currentPort });
                 });
 
                 this.server.on('error', (e: NodeJS.ErrnoException) => {
@@ -291,7 +307,6 @@ export class GatewayManager {
         if (this.server) {
             this.server.close();
             this.server = null;
-            // [Persistence] Do NOT clear authToken here
             this.log('🛑 Gateway server stopped.');
             this.trace({ event: 'gateway_stopped', status: 'success' });
         }
@@ -302,5 +317,7 @@ export class GatewayManager {
         });
         this.connectedClients = [];
         this.commandApprovalManager.clear();
+        this.bridgeSessionManager.clear();
+        this.currentAiSites = [];
     }
 }

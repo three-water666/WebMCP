@@ -1,4 +1,19 @@
-import { isMessageRequest, type MessageRequest, type SessionDisconnectReason } from '../types';
+import {
+  type BackgroundActionRuntimeMessageRequest,
+  type BackgroundRuntimeMessageRequest,
+  type GetStatusMessageRequest,
+  type HandshakeMessageRequest,
+  isBackgroundRuntimeMessageRequest,
+  isMessageRequest,
+  isSettingsRuntimeMessageRequest,
+  type RequestUserAttentionMessageRequest,
+  type SessionDisconnectReason,
+  type SetAutoApproveToolsMessageRequest,
+  type SetAutoSendMessageRequest,
+  type SetDefaultAutoApproveToolsMessageRequest,
+  type SetLogVisibleMessageRequest,
+  type SettingsRuntimeMessageRequest,
+} from '../types';
 import { playAttentionSound } from './attention_sound';
 import { handleHandshake } from './connection';
 import { getErrorMessage } from './errors';
@@ -21,7 +36,7 @@ export function handleRuntimeMessage(
   sender: chrome.runtime.MessageSender,
   sendResponse: SendResponse
 ): boolean {
-  if (!isMessageRequest(request)) {
+  if (!isMessageRequest(request) || !isBackgroundRuntimeMessageRequest(request)) {
     return false;
   }
 
@@ -29,20 +44,28 @@ export function handleRuntimeMessage(
 }
 
 function dispatchRuntimeMessage(
-  request: MessageRequest,
+  request: BackgroundRuntimeMessageRequest,
   sender: chrome.runtime.MessageSender,
   sendResponse: SendResponse
 ): boolean {
   const currentTabId = sender.tab ? sender.tab.id : null;
 
-  if (dispatchSettingsRuntimeMessage(request, currentTabId, sendResponse)) {
-    return true;
+  if (isSettingsRuntimeMessageRequest(request)) {
+    return dispatchSettingsRuntimeMessage(request, currentTabId, sendResponse);
   }
 
+  return dispatchActionRuntimeMessage(request, sender, currentTabId, sendResponse);
+}
+
+function dispatchActionRuntimeMessage(
+  request: BackgroundActionRuntimeMessageRequest,
+  sender: chrome.runtime.MessageSender,
+  currentTabId: number | null | undefined,
+  sendResponse: SendResponse
+): boolean {
   switch (request.type) {
     case "HANDSHAKE":
-      respondAsync(handleHandshake(request, currentTabId), sendResponse);
-      return true;
+      return handleHandshakeRuntimeMessage(request, sender, currentTabId, sendResponse);
     case "GET_STATUS":
       handleGetStatus(request, sender, sendResponse);
       return true;
@@ -72,8 +95,42 @@ function dispatchRuntimeMessage(
   }
 }
 
+function handleHandshakeRuntimeMessage(
+  request: HandshakeMessageRequest,
+  sender: chrome.runtime.MessageSender,
+  currentTabId: number | null | undefined,
+  sendResponse: SendResponse
+): boolean {
+  if (!isValidHandshakeSender(request, sender)) {
+    sendResponse({ success: false, error: "Invalid handshake source" });
+    return true;
+  }
+
+  respondAsync(handleHandshake(request, currentTabId), sendResponse);
+  return true;
+}
+
+function isValidHandshakeSender(
+  request: HandshakeMessageRequest,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (sender.id !== chrome.runtime.id || !sender.tab?.id || !sender.url || typeof request.port !== "number") {
+    return false;
+  }
+
+  try {
+    const url = new URL(sender.url);
+    return url.protocol === "http:" &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      url.pathname === "/bridge" &&
+      Number(url.port) === request.port;
+  } catch {
+    return false;
+  }
+}
+
 function dispatchSettingsRuntimeMessage(
-  request: MessageRequest,
+  request: SettingsRuntimeMessageRequest,
   currentTabId: number | null | undefined,
   sendResponse: SendResponse
 ): boolean {
@@ -96,7 +153,7 @@ function dispatchSettingsRuntimeMessage(
 }
 
 function handleGetStatus(
-  request: MessageRequest,
+  request: GetStatusMessageRequest,
   sender: chrome.runtime.MessageSender,
   sendResponse: SendResponse
 ): void {
@@ -172,7 +229,7 @@ function getDisconnectReasonForHealthStatus(status: GatewayHealthStatus): Sessio
 }
 
 function handleSetLogVisible(
-  request: MessageRequest,
+  request: SetLogVisibleMessageRequest,
   currentTabId: number | null | undefined,
   sendResponse: SendResponse
 ): void {
@@ -196,7 +253,7 @@ function handleSetLogVisible(
 }
 
 function handleSetAutoSend(
-  request: MessageRequest,
+  request: SetAutoSendMessageRequest,
   currentTabId: number | null | undefined,
   sendResponse: SendResponse
 ): void {
@@ -225,7 +282,7 @@ function handleSetAutoSend(
 }
 
 function handleSetAutoApproveTools(
-  request: MessageRequest,
+  request: SetAutoApproveToolsMessageRequest,
   currentTabId: number | null | undefined,
   sendResponse: SendResponse
 ): void {
@@ -259,7 +316,7 @@ function handleSetAutoApproveTools(
 }
 
 function handleSetDefaultAutoApproveTools(
-  request: MessageRequest,
+  request: SetDefaultAutoApproveToolsMessageRequest,
   sendResponse: SendResponse
 ): void {
   if (typeof request.defaultAutoApproveTools !== "boolean") {
@@ -286,7 +343,7 @@ function handleSetDefaultAutoApproveTools(
 }
 
 async function requestUserAttention(
-  request: MessageRequest,
+  request: RequestUserAttentionMessageRequest,
   sender: chrome.runtime.MessageSender
 ): Promise<{ success: boolean; error?: string; skipped?: boolean; sound?: "played" | "failed"; soundError?: string }> {
   const attentionResult = await updateWindowAttention(sender, true);

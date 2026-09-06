@@ -96,5 +96,6 @@ jobs:
 
       - name: Run Extension Host tests
         env:
+          WEBCODE_EVAL_VSCODE_PATH: download
           VSCODE_TEST_VERSION: ${{ steps.vscode-version.outputs.version }}
         run: xvfb-run -a pnpm test:extension
