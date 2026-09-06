@@ -8,7 +8,6 @@ import { isAllowedBridgeRedemptionOrigin, registerBridgeRoute } from '../gateway
 import { BridgeSessionManager } from '../gateway/bridgeSession';
 import type { ResolvedAiSiteConfig } from '../platforms';
 
-const BUNDLED_BRIDGE_ORIGIN = 'chrome-extension://joieheegaphjokbcbklegmphhgpdfcon';
 const CHROME_WEB_STORE_BRIDGE_ORIGIN = 'chrome-extension://kghhldphcmpiimophipabdhldfipgiio';
 
 const TEST_SITE: ResolvedAiSiteConfig = {
@@ -27,10 +26,10 @@ const TEST_SITE: ResolvedAiSiteConfig = {
 };
 
 suite('Bridge route security', () => {
-    test('allows only official browser bridge origins to redeem launch codes', () => {
-        assert.strictEqual(isAllowedBridgeRedemptionOrigin(BUNDLED_BRIDGE_ORIGIN), true);
+    test('allows only the shared browser bridge origin to redeem launch codes', () => {
         assert.strictEqual(isAllowedBridgeRedemptionOrigin(CHROME_WEB_STORE_BRIDGE_ORIGIN), true);
         assert.strictEqual(isAllowedBridgeRedemptionOrigin('chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), false);
+        assert.strictEqual(isAllowedBridgeRedemptionOrigin(`${CHROME_WEB_STORE_BRIDGE_ORIGIN}/`), false);
         assert.strictEqual(isAllowedBridgeRedemptionOrigin(undefined), false);
     });
 
@@ -58,14 +57,14 @@ suite('Bridge route security', () => {
             assert.strictEqual(foreignExtensionResponse.status, 403);
             assert.ok(sessions.getBridgeLaunch(bridgeCode));
 
-            const bundledResponse = await redeemBridgeCode(
+            const bridgeResponse = await redeemBridgeCode(
                 server.baseUrl,
                 bridgeCode,
                 '1.0.1',
                 BRIDGE_PROTOCOL_VERSION,
-                BUNDLED_BRIDGE_ORIGIN
+                CHROME_WEB_STORE_BRIDGE_ORIGIN
             );
-            assert.strictEqual(bundledResponse.status, 200);
+            assert.strictEqual(bridgeResponse.status, 200);
         } finally {
             await closeServer(server.httpServer);
         }

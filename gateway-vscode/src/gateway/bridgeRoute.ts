@@ -6,12 +6,8 @@ import { findAiSiteById, isTargetAllowedForSite, type ResolvedAiSiteConfig } fro
 import type { PendingBridgeLaunch } from './bridgeSession';
 import type { GatewayLogger } from './types';
 
-const BUNDLED_BRIDGE_EXTENSION_ORIGIN = 'chrome-extension://joieheegaphjokbcbklegmphhgpdfcon';
-const CHROME_WEB_STORE_BRIDGE_EXTENSION_ORIGIN = 'chrome-extension://kghhldphcmpiimophipabdhldfipgiio';
-const ALLOWED_BRIDGE_REDEMPTION_ORIGINS = new Set([
-    BUNDLED_BRIDGE_EXTENSION_ORIGIN,
-    CHROME_WEB_STORE_BRIDGE_EXTENSION_ORIGIN
-]);
+const BRIDGE_EXTENSION_ID = 'kghhldphcmpiimophipabdhldfipgiio';
+const BRIDGE_EXTENSION_ORIGIN = `chrome-extension://${BRIDGE_EXTENSION_ID}`;
 
 type BridgeRouteOptions = {
     activateSession: () => string;
@@ -46,7 +42,7 @@ export function registerBridgeRoute(app: express.Express, options: BridgeRouteOp
         }
 
         const releaseUrl = `${BRANDING.repositoryUrl}/releases`;
-        const storeUrl = 'https://chromewebstore.google.com/detail/webcode-bridge/kghhldphcmpiimophipabdhldfipgiio';
+        const storeUrl = `https://chromewebstore.google.com/detail/webcode-bridge/${BRIDGE_EXTENSION_ID}`;
         const vscodeExtensionVersion = options.getExtensionVersion();
         const workspaceId = createWorkspaceId(options.getWorkspaceRoot());
 
@@ -207,7 +203,7 @@ function resolvePendingBridgeLaunch(
 }
 
 export function isAllowedBridgeRedemptionOrigin(origin: string | undefined): boolean {
-    return Boolean(origin && ALLOWED_BRIDGE_REDEMPTION_ORIGINS.has(origin));
+    return origin === BRIDGE_EXTENSION_ORIGIN;
 }
 
 function getBridgeRedemptionFromBody(

@@ -13,9 +13,6 @@ import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BUILD_DESCRIPTOR_FILE = 'bridge-build.json';
-// Public identity key for the VSIX-bundled unpacked bridge only. Keeping this value stable
-// keeps its extension id (joieheegaphjokbcbklegmphhgpdfcon) independent of install paths.
-const BUNDLED_EXTENSION_PUBLIC_KEY = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAolDT+vb34R3fJYGyO3BMcM42eBrjiqdsjg2Ux6297E2TRuldLEobbCVqKRuaoHrdfzXD6FjonA4564IP+cJa+AvL0ClPqM1aJZSink4AAXEyL7Yu2/Wbcm+KBm4aB/ltjNXMIM3IaxoJk5ktzPH5fBTHq+WkqUrGm3UoBXYZOfsWWuU0KYKl3cV3ua4/4hM0Om/lf9dcv3fIfxMfQtTEvnfDcrTzjmh1XvFLZdpApDOaiFf8hpeVcAHa/BDXKXHHWrl1ZjspSjEn2Y05DDZ77xUTDPVGQvOmxE4iPJSFFraJrugpTJ3oNxZ5t4+4RDhR17dCadGzShhJIT72ReZH7wIDAQAB';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(scriptDir, '..');
@@ -28,14 +25,17 @@ if (!existsSync(resolve(sourceDir, 'manifest.json'))) {
   throw new Error(`Browser extension build not found at ${sourceDir}`);
 }
 
+const sourceManifestPath = resolve(repoRoot, 'bridge-browser', 'manifest.json');
+const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, 'utf8'));
+const manifest = JSON.parse(readFileSync(resolve(sourceDir, 'manifest.json'), 'utf8'));
+// ZIP and VSIX builds share the Chrome Web Store public identity from the source manifest.
+if (typeof sourceManifest.key !== 'string' || !sourceManifest.key || manifest.key !== sourceManifest.key) {
+  throw new Error('Browser extension build has an unexpected identity key. Rebuild bridge-browser before packaging.');
+}
+
 rmSync(targetDir, { recursive: true, force: true });
 mkdirSync(targetDir, { recursive: true });
 cpSync(sourceDir, targetDir, { recursive: true });
-
-const manifestPath = resolve(targetDir, 'manifest.json');
-const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-manifest.key = BUNDLED_EXTENSION_PUBLIC_KEY;
-writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
 const bridgeProtocol = JSON.parse(readFileSync(bridgeProtocolPath, 'utf8'));
 const buildDescriptor = {
