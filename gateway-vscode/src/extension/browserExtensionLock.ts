@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import type { BigIntStats } from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -108,27 +109,45 @@ async function reclaimStaleInstallLock(rootDir: string, lockPath: string): Promi
 }
 
 async function readInstallLockSnapshot(lockPath: string): Promise<InstallLockSnapshot | null> {
-    let stats: Awaited<ReturnType<typeof fs.stat>>;
+    const before = await readLockDirectoryStats(lockPath);
+    if (!before) {
+        return null;
+    }
+
+    const owner = await readLockOwner(path.join(lockPath, INSTALL_LOCK_OWNER_FILE));
+    const after = await readLockDirectoryStats(lockPath);
+    // The path may have disappeared or been reused while reading owner.json. A missing
+    // owner must never turn metadata from the previous directory into a stale snapshot.
+    if (!after || !isSameDirectorySnapshot(before, after)) {
+        return null;
+    }
+
+    // Retained tombstones keep their inodes allocated. Derive the generation from the
+    // directory itself, independently of owner reads and timestamps changed by the guard.
+    const identitySource = [after.dev, after.ino].join(':');
+    return {
+        identity: crypto.createHash('sha256').update(identitySource).digest('hex').slice(0, 32),
+        isStale: owner ? !isProcessAlive(owner.pid) : Date.now() - Number(after.mtimeMs) > STALE_LOCK_MS
+    };
+}
+
+async function readLockDirectoryStats(lockPath: string): Promise<BigIntStats | null> {
     try {
-        stats = await fs.stat(lockPath);
+        return await fs.stat(lockPath, { bigint: true });
     } catch (error: unknown) {
         if (hasErrorCode(error, 'ENOENT')) {
             return null;
         }
         throw error;
     }
+}
 
-    const owner = await readLockOwner(path.join(lockPath, INSTALL_LOCK_OWNER_FILE));
-    const identitySource = owner?.token ?? [
-        stats.dev,
-        stats.ino,
-        stats.birthtimeMs,
-        stats.mtimeMs
-    ].join(':');
-    return {
-        identity: crypto.createHash('sha256').update(identitySource).digest('hex').slice(0, 32),
-        isStale: owner ? !isProcessAlive(owner.pid) : Date.now() - stats.mtimeMs > STALE_LOCK_MS
-    };
+function isSameDirectorySnapshot(before: BigIntStats, after: BigIntStats): boolean {
+    return before.dev === after.dev &&
+        before.ino === after.ino &&
+        before.birthtimeNs === after.birthtimeNs &&
+        before.mtimeNs === after.mtimeNs &&
+        before.ctimeNs === after.ctimeNs;
 }
 
 async function readLockOwner(ownerPath: string): Promise<{ pid: number; token: string } | null> {
